@@ -43,7 +43,7 @@ const commands = [
         .setName('diggingprice')
         .setDescription('Calculate digging price for an area')
         .addIntegerOption(o => o.setName('length').setDescription('Length in blocks').setRequired(true))
-        .addIntegerOption(o => o.setname('width').setDescription('Width in blocks').setRequired(true))
+        .addIntegerOption(o => o.setName('width').setDescription('Width in blocks').setRequired(true))
         .addIntegerOption(o => o.setName('height').setDescription('Height in blocks').setRequired(true)),
     new SlashCommandBuilder()
         .setName('smokerprice')
