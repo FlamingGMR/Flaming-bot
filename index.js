@@ -247,3 +247,125 @@ return interaction.reply(`Total price: ${formatMoney(total)}`);
 });
 
 client.login(process.env.TOKEN);
+
+/* ---------------- GIVEAWAY & DOUBLE OR KEEP ---------------- */
+
+const { Collection } = require('discord.js');
+client.giveaways = new Collection(); // store active giveaways
+client.dorkGames = new Collection(); // store active Double or Keep
+
+/* HELPER FUNCTIONS */
+
+function formatWinners(winners) {
+    if (winners.length === 1) return winners[0];
+    if (winners.length === 2) return winners.join(' and ');
+    const last = winners.pop();
+    return winners.join(', ') + ', and ' + last;
+}
+
+/* ---------------- INTERACTIONS ---------------- */
+
+client.on(Events.InteractionCreate, async interaction => {
+    if (!interaction.isChatInputCommand() && !interaction.isButton()) return;
+
+    /* ---- GIVEAWAY ---- */
+    if (interaction.commandName === 'giveaway') {
+        const timeInput = interaction.options.getString('time');
+        const prize = interaction.options.getString('prize');
+        const winnersCount = interaction.options.getInteger('winners');
+        const description = interaction.options.getString('description');
+
+        const duration = parseTime(timeInput);
+        if (!duration) return interaction.reply({ content: 'Invalid time format', ephemeral: true });
+
+        const giveawayId = `${interaction.id}-${Date.now()}`;
+        const participants = [];
+
+        const joinButton = new ButtonBuilder()
+            .setCustomId(`giveaway_join_${giveawayId}`)
+            .setLabel('Join')
+            .setStyle(ButtonStyle.Primary);
+
+        const row = new ActionRowBuilder().addComponents(joinButton);
+
+        const msg = await interaction.reply({
+            content: `🎉 Giveaway: **${prize}**\n${description}\nWinners: ${winnersCount}\nTime: ${timeInput}\nParticipants: 0`,
+            components: [row],
+            fetchReply: true
+        });
+
+        client.giveaways.set(giveawayId, { message: msg, prize, winnersCount, participants });
+
+        setTimeout(async () => {
+            const giveaway = client.giveaways.get(giveawayId);
+            if (!giveaway) return;
+
+            const participants = giveaway.participants;
+            if (participants.length === 0) {
+                await giveaway.message.edit({ content: `Giveaway for **${prize}** ended. No participants.` });
+                client.giveaways.delete(giveawayId);
+                return;
+            }
+
+            const winners = [];
+            for (let i = 0; i < Math.min(giveaway.winnersCount, participants.length); i++) {
+                const winner = participants.splice(Math.floor(Math.random() * participants.length), 1)[0];
+                winners.push(winner);
+            }
+
+            await giveaway.message.edit({ content: `🎉 Giveaway ended! Winners: ${formatWinners(winners)} | Prize: ${prize}` });
+            client.giveaways.delete(giveawayId);
+        }, duration);
+    }
+
+    /* ---- DOUBLE OR KEEP ---- */
+    if (interaction.commandName === 'gcreatedork') {
+        const gameId = `${interaction.id}-${Date.now()}`;
+        const row = new ActionRowBuilder().addComponents(
+            new ButtonBuilder().setCustomId(`dork_double_${gameId}`).setLabel('Double').setStyle(ButtonStyle.Success),
+            new ButtonBuilder().setCustomId(`dork_keep_${gameId}`).setLabel('Keep').setStyle(ButtonStyle.Danger)
+        );
+
+        const msg = await interaction.reply({
+            content: 'Double or Keep game! Winner chooses:',
+            components: [row],
+            fetchReply: true
+        });
+
+        client.dorkGames.set(gameId, { message: msg, players: [] });
+    }
+});
+
+/* ---------------- BUTTON HANDLER ---------------- */
+
+client.on(Events.InteractionCreate, async interaction => {
+    if (!interaction.isButton()) return;
+
+    // Giveaway join
+    if (interaction.customId.startsWith('giveaway_join_')) {
+        const id = interaction.customId.replace('giveaway_join_', '');
+        const giveaway = client.giveaways.get(id);
+        if (!giveaway) return interaction.reply({ content: 'Giveaway ended or invalid.', ephemeral: true });
+
+        if (!giveaway.participants.includes(interaction.user.username)) {
+            giveaway.participants.push(interaction.user.username);
+        }
+
+        await giveaway.message.edit({
+            content: `${giveaway.message.content.split('\n').slice(0, 3).join('\n')}\nParticipants: ${giveaway.participants.length}`
+        });
+
+        return interaction.reply({ content: 'You joined the giveaway!', ephemeral: true });
+    }
+
+    // Double or Keep buttons
+    if (interaction.customId.startsWith('dork_double_') || interaction.customId.startsWith('dork_keep_')) {
+        const gameId = interaction.customId.split('_').slice(2).join('_');
+        const game = client.dorkGames.get(gameId);
+        if (!game) return interaction.reply({ content: 'Game expired.', ephemeral: true });
+
+        game.players.push({ user: interaction.user.username, choice: interaction.customId.includes('double') ? 'Double' : 'Keep' });
+
+        await interaction.reply({ content: `You chose ${interaction.customId.includes('double') ? 'Double' : 'Keep'}`, ephemeral: true });
+    }
+});
