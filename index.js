@@ -71,111 +71,6 @@ const giveaways = new Collection();
 const SMOKER_BASE = 200_000; // 200k per smoker
 
 // Part 2: Moderation Commands (all using embeds)
-client.on('interactionCreate', async (interaction) => {
-    if (!interaction.isChatInputCommand()) return;
-
-    const { commandName, options, member, guild } = interaction;
-
-    // Warn command
-    if (commandName === 'warn') {
-        const user = options.getUser('user');
-        const reason = options.getString('reason') || 'No reason provided';
-
-        if (!member.permissions.has('ModerateMembers')) {
-            return interaction.reply({
-                embeds: [createEmbed('Permission Denied', 'You do not have permission to warn members.', '#FF0000')],
-                ephemeral: true
-            });
-        }
-
-        // Log warning in file
-        fs.appendFileSync('warns.txt', `${user.tag} was warned by ${member.user.tag} for: ${reason}\n`);
-
-        return interaction.reply({
-            embeds: [createEmbed('Member Warned', `${user} has been warned.\nReason: ${reason}`, '#FFA500')]
-        });
-    }
-
-    // Ban command
-    if (commandName === 'ban') {
-        const user = options.getUser('user');
-        const reason = options.getString('reason') || 'No reason provided';
-
-        if (!member.permissions.has('BanMembers')) {
-            return interaction.reply({
-                embeds: [createEmbed('Permission Denied', 'You do not have permission to ban members.', '#FF0000')],
-                ephemeral: true
-            });
-        }
-
-        const memberToBan = guild.members.cache.get(user.id);
-        if (!memberToBan) {
-            return interaction.reply({ embeds: [createEmbed('Error', 'Member not found.', '#FF0000')], ephemeral: true });
-        }
-
-        await memberToBan.ban({ reason });
-        return interaction.reply({
-            embeds: [createEmbed('Member Banned', `${user} has been banned.\nReason: ${reason}`, '#FF0000')]
-        });
-    }
-
-    // Timeout command
-    if (commandName === 'timeout') {
-        const user = options.getUser('user');
-        const duration = parseNumber(options.getString('duration')) || 60; // default 60s
-        const reason = options.getString('reason') || 'No reason provided';
-
-        if (!member.permissions.has('ModerateMembers')) {
-            return interaction.reply({
-                embeds: [createEmbed('Permission Denied', 'You do not have permission to timeout members.', '#FF0000')],
-                ephemeral: true
-            });
-        }
-
-        const memberToTimeout = guild.members.cache.get(user.id);
-        await memberToTimeout.timeout(duration * 1000, reason);
-
-        return interaction.reply({
-            embeds: [createEmbed('Member Timed Out', `${user} has been timed out for ${duration} seconds.\nReason: ${reason}`, '#FFA500')]
-        });
-    }
-
-    // Unban command
-    if (commandName === 'unban') {
-        const userId = options.getString('user_id');
-
-        if (!member.permissions.has('BanMembers')) {
-            return interaction.reply({
-                embeds: [createEmbed('Permission Denied', 'You do not have permission to unban members.', '#FF0000')],
-                ephemeral: true
-            });
-        }
-
-        await guild.members.unban(userId);
-        return interaction.reply({
-            embeds: [createEmbed('User Unbanned', `User with ID ${userId} has been unbanned.`, '#00FF00')]
-        });
-    }
-
-    // Untimeout command
-    if (commandName === 'untimeout') {
-        const user = options.getUser('user');
-        const memberToUntimeout = guild.members.cache.get(user.id);
-
-        if (!member.permissions.has('ModerateMembers')) {
-            return interaction.reply({
-                embeds: [createEmbed('Permission Denied', 'You do not have permission to remove timeout.', '#FF0000')],
-                ephemeral: true
-            });
-        }
-
-        await memberToUntimeout.timeout(null);
-        return interaction.reply({
-            embeds: [createEmbed('Timeout Removed', `${user} has been removed from timeout.`, '#00FF00')]
-        });
-    }
-});
-
 
 // Part 3: Spawner Calculator & Smoker Commands
 
@@ -377,15 +272,24 @@ client.on('interactionCreate', async (interaction) => {
     }
 
     // ==================== Smoker Game ====================
-    if (commandName === 'smoker') {
-        const count = options.getString('count'); // Number of smokers to calculate
-        const total = parseRewardInput(count) * 200_000; // 200k per smoker
+    if (commandName === 'spawner') {
+    const sub = options.getSubcommand(); // 'calc' or 'change'
+    if (sub === 'calc') {
+        const count = options.getString('count');
+        const price = options.getString('price');
+        const total = parseNumber(count) * parseNumber(price);
         const embed = new EmbedBuilder()
-            .setTitle('Smoker Calculation')
-            .setDescription(`**Smokers:** ${count}\n**Total Value:** ${total.toLocaleString()} coins`)
-            .setColor('#00FF00');
+            .setTitle('Spawner Price')
+            .setDescription(`**Spawners:** ${count}\n**Price per Spawner:** ${price}\n**Total:** ${total}`)
+            .setColor('#FFA500');
         await interaction.reply({ embeds: [embed] });
+    } else if (sub === 'change') {
+        const newPrice = options.getString('price');
+        client.spawnerPrice = parseNumber(newPrice);
+        await interaction.reply({ content: `Spawner price updated to ${newPrice}`, ephemeral: true });
     }
+}
+
 
     // ==================== Spawner Price ====================
     if (commandName === 'spawner') {
