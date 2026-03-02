@@ -370,212 +370,181 @@ client.on(Events.InteractionCreate, async interaction => {
     }
 });
 
-const { Collection, EmbedBuilder, ButtonBuilder, ButtonStyle, ActionRowBuilder, Events } = require('discord.js');
+// ─── PART 3: Giveaway & Double-or-Keep System ───
 
-client.giveaways = new Collection(); // Active giveaways
-client.dorkGames = new Collection(); // Active Double/Keep games
+// Collections to track active giveaways and Double-or-Keep
+const giveaways = new Collection();
+const doubleOrKeep = new Collection();
 
-/* ---------- HELPERS ---------- */
-function formatMoney(value) {
-    if (value >= 1e6) return `${value / 1e6}M`;
+// Helper function to format numbers like 5M instead of 5000000
+function formatM(value) {
+    if (value >= 1_000_000) return `${value / 1_000_000}M`;
     return value.toString();
 }
 
-function formatWinners(winners) {
-    if (winners.length === 1) return `<@${winners[0]}>`;
-    if (winners.length === 2) return winners.map(id => `<@${id}>`).join(' and ');
-    const last = winners.pop();
-    return winners.map(id => `<@${id}>`).join(', ') + ', and ' + `<@${last}>`;
-}
-
-function parseTime(str) {
-    const match = str.match(/(\d+)([smhd])/);
+// Helper function to parse duration strings like 5m, 2h, 3d into milliseconds
+function parseDuration(str) {
+    const match = str.match(/^(\d+)([smhd])$/i);
     if (!match) return null;
-    const n = parseInt(match[1]);
-    const unit = match[2];
-    if (unit === 's') return n * 1000;
-    if (unit === 'm') return n * 60 * 1000;
-    if (unit === 'h') return n * 60 * 60 * 1000;
-    if (unit === 'd') return n * 24 * 60 * 60 * 1000;
-    return null;
+    const [, num, unit] = match;
+    const n = parseInt(num);
+    switch (unit.toLowerCase()) {
+        case 's': return n * 1000;
+        case 'm': return n * 60 * 1000;
+        case 'h': return n * 60 * 60 * 1000;
+        case 'd': return n * 24 * 60 * 60 * 1000;
+        default: return null;
+    }
 }
 
-/* ---------- GIVEAWAY COMMAND ---------- */
+// Slash commands for giveaways
+const giveawayCommands = [
+    new SlashCommandBuilder()
+        .setName('giveaway')
+        .setDescription('Start a giveaway')
+        .addStringOption(o => o.setName('prize').setDescription('The prize to give').setRequired(true))
+        .addIntegerOption(o => o.setName('winners').setDescription('Number of winners').setRequired(true))
+        .addStringOption(o => o.setName('duration').setDescription('Duration like 5m, 2h, 3d').setRequired(true))
+        .addStringOption(o => o.setName('description').setDescription('Description for the giveaway').setRequired(false)),
+    new SlashCommandBuilder()
+        .setName('gend')
+        .setDescription('End a giveaway')
+        .addStringOption(o => o.setName('messageid').setDescription('ID of the giveaway message').setRequired(false)),
+    new SlashCommandBuilder()
+        .setName('gcreatedork')
+        .setDescription('Start a Double-or-Keep giveaway')
+        .addIntegerOption(o => o.setName('amount').setDescription('Starting amount in M').setRequired(true))
+        .addStringOption(o => o.setName('duration').setDescription('Duration like 5m, 2h, 3d').setRequired(true))
+        .addIntegerOption(o => o.setName('max').setDescription('Maximum allowed amount').setRequired(true))
+].map(cmd => cmd.toJSON());
+
+// Register the giveaway commands (optional, can merge with Part 2 commands)
+(async () => {
+    try {
+        console.log('Registering giveaway commands...');
+        await rest.put(
+            Routes.applicationGuildCommands(process.env.CLIENT_ID, process.env.GUILD_ID),
+            { body: giveawayCommands }
+        );
+        console.log('Giveaway commands registered.');
+    } catch (error) {
+        console.error(error);
+    }
+})();
+
+// ─── EVENT LISTENER: INTERACTIONS ───
 client.on(Events.InteractionCreate, async interaction => {
     if (!interaction.isChatInputCommand()) return;
 
-    /* ---- Create Giveaway ---- */
-    if (interaction.commandName === 'giveaway') {
+    const { commandName } = interaction;
+
+    // ─── /giveaway ───
+    if (commandName === 'giveaway') {
         const prize = interaction.options.getString('prize');
-        const description = interaction.options.getString('description');
         const winnersCount = interaction.options.getInteger('winners');
-        const durationInput = interaction.options.getString('time');
-        const duration = parseTime(durationInput);
-        if (!duration) return interaction.reply({ content: 'Invalid time format', ephemeral: true });
+        const durationStr = interaction.options.getString('duration');
+        const description = interaction.options.getString('description') || '';
 
-        const endTimestamp = Date.now() + duration;
-        const giveawayId = `${interaction.id}-${Date.now()}`;
-        const participants = [];
-
-        const joinButton = new ButtonBuilder()
-            .setCustomId(`giveaway_join_${giveawayId}`)
-            .setLabel('Join')
-            .setStyle(ButtonStyle.Primary);
-
-        const row = new ActionRowBuilder().addComponents(joinButton);
+        const duration = parseDuration(durationStr);
+        if (!duration) return interaction.reply({ content: 'Invalid duration format.', ephemeral: true });
 
         const embed = new EmbedBuilder()
-            .setTitle(`🎉 **${prize}**`)
-            .setDescription(`${description}\n\nEnding: <t:${Math.floor(endTimestamp / 1000)}:R>\nHosted by: <@${interaction.user.id}>\nEntries: 0`)
-            .setColor('#FFD700');
+            .setTitle(`🎉 ${prize}`)
+            .setDescription(`${description}\n\nEnding: <t:${Math.floor((Date.now() + duration)/1000)}:R>\nHosted by: ${interaction.user}`)
+            .setColor('Random');
+
+        const row = new ActionRowBuilder()
+            .addComponents(
+                new ButtonBuilder()
+                    .setCustomId('joinGiveaway')
+                    .setLabel('Join Giveaway')
+                    .setStyle(ButtonStyle.Primary)
+            );
 
         const msg = await interaction.reply({ embeds: [embed], components: [row], fetchReply: true });
 
-        client.giveaways.set(giveawayId, {
-            message: msg,
+        giveaways.set(msg.id, {
             prize,
+            winnersCount,
+            host: interaction.user,
             description,
-            hostId: interaction.user.id,
-            participants,
-            endTimestamp,
-            winnersCount
+            participants: new Set(),
+            end: Date.now() + duration
         });
 
-        /* Auto end giveaway */
-        setTimeout(async () => {
-            const giveaway = client.giveaways.get(giveawayId);
-            if (!giveaway) return;
-
-            const participantsCopy = [...giveaway.participants];
-            if (participantsCopy.length === 0) {
-                await giveaway.message.edit({ embeds: [embed.setDescription(`${description}\n\nEnded: <t:${Math.floor(Date.now() / 1000)}:R>\nHosted by: <@${interaction.user.id}>\nEntries: 0`)], components: [] });
-                client.giveaways.delete(giveawayId);
-                return;
-            }
-
-            const winners = [];
-            for (let i = 0; i < Math.min(giveaway.winnersCount, participantsCopy.length); i++) {
-                const winnerIndex = Math.floor(Math.random() * participantsCopy.length);
-                winners.push(participantsCopy.splice(winnerIndex, 1)[0]);
-            }
-
-            await giveaway.message.edit({
-                embeds: [embed.setDescription(`${description}\n\nEnded: <t:${Math.floor(Date.now() / 1000)}:R>\nHosted by: <@${giveaway.hostId}>\nEntries: ${giveaway.participants.length}\nWinner(s): ${formatWinners(winners)}`)],
-                components: []
-            });
-
-            client.giveaways.delete(giveawayId);
-        }, duration);
+        setTimeout(() => endGiveaway(msg.id), duration);
     }
 
-    /* ---- Double or Keep ---- */
-    if (interaction.commandName === 'gcreatedork') {
-        const startAmountInput = interaction.options.getString('startamount'); // in millions
-        const maxAmountInput = interaction.options.getString('maxamount'); // in millions
-        const durationInput = interaction.options.getString('time'); // e.g., 5m, 1h
+    // ─── /gend ───
+    else if (commandName === 'gend') {
+        const messageId = interaction.options.getString('messageid');
+        const idToEnd = messageId || Array.from(giveaways.keys()).pop();
+        if (!idToEnd) return interaction.reply({ content: 'No active giveaway found.', ephemeral: true });
+        await endGiveaway(idToEnd, true);
+        interaction.reply({ content: 'Giveaway ended manually.', ephemeral: true });
+    }
 
-        const startAmount = parseInt(startAmountInput);
-        const maxAmount = parseInt(maxAmountInput);
-        const duration = parseTime(durationInput);
-        if (!startAmount || !maxAmount || !duration) return interaction.reply({ content: 'Invalid input', ephemeral: true });
+    // ─── /gcreatedork ───
+    else if (commandName === 'gcreatedork') {
+        const startAmount = interaction.options.getInteger('amount');
+        const durationStr = interaction.options.getString('duration');
+        const maxAmount = interaction.options.getInteger('max');
 
-        const endTimestamp = Date.now() + duration;
-        const gameId = `${interaction.id}-${Date.now()}`;
-
-        const row = new ActionRowBuilder().addComponents(
-            new ButtonBuilder().setCustomId(`dork_double_${gameId}`).setLabel('Double').setStyle(ButtonStyle.Success),
-            new ButtonBuilder().setCustomId(`dork_keep_${gameId}`).setLabel('Keep').setStyle(ButtonStyle.Danger)
-        );
+        const duration = parseDuration(durationStr);
+        if (!duration) return interaction.reply({ content: 'Invalid duration format.', ephemeral: true });
 
         const embed = new EmbedBuilder()
-            .setTitle(`💰 Double or Keep — $${formatMoney(startAmount * 1e6)}`)
-            .setDescription(`Maximum: $${formatMoney(maxAmount * 1e6)}\nHosted by: <@${interaction.user.id}>\nEnding: <t:${Math.floor(endTimestamp / 1000)}:R>`)
-            .setColor('#00FF00');
+            .setTitle(`💰 Double or Keep: ${startAmount}M`)
+            .setDescription(`Hosted by: ${interaction.user}\nEnding: <t:${Math.floor((Date.now() + duration)/1000)}:R>`)
+            .setColor('Random');
+
+        const row = new ActionRowBuilder()
+            .addComponents(
+                new ButtonBuilder()
+                    .setCustomId(`dork_${interaction.user.id}_${Date.now()}`)
+                    .setLabel('Double or Keep')
+                    .setStyle(ButtonStyle.Primary)
+            );
 
         const msg = await interaction.reply({ embeds: [embed], components: [row], fetchReply: true });
 
-        client.dorkGames.set(gameId, { message: msg, amount: startAmount, maxAmount, hostId: interaction.user.id, endTimestamp, winner: null });
+        doubleOrKeep.set(msg.id, {
+            amount: startAmount,
+            host: interaction.user,
+            max: maxAmount,
+            end: Date.now() + duration
+        });
+
+        setTimeout(() => endDork(msg.id), duration);
     }
 });
 
-/* ---------- BUTTON HANDLER ---------- */
-client.on(Events.InteractionCreate, async interaction => {
-    if (!interaction.isButton()) return;
+// ─── HELPER FUNCTIONS ───
+async function endGiveaway(messageId, manual=false) {
+    const giveaway = giveaways.get(messageId);
+    if (!giveaway) return;
+    const channel = client.channels.cache.get(giveaway.channelId) || (await client.channels.fetch(giveaway.channelId).catch(()=>null));
+    if (!channel) return giveaways.delete(messageId);
 
-    /* Giveaway Join */
-    if (interaction.customId.startsWith('giveaway_join_')) {
-        const id = interaction.customId.replace('giveaway_join_', '');
-        const giveaway = client.giveaways.get(id);
-        if (!giveaway) return interaction.reply({ content: 'Giveaway ended or invalid.', ephemeral: true });
-
-        if (!giveaway.participants.includes(interaction.user.id)) giveaway.participants.push(interaction.user.id);
-
-        const embed = new EmbedBuilder()
-            .setTitle(`🎉 **${giveaway.prize}**`)
-            .setDescription(`${giveaway.description}\n\nEnding: <t:${Math.floor(giveaway.endTimestamp / 1000)}:R>\nHosted by: <@${giveaway.hostId}>\nEntries: ${giveaway.participants.length}`)
-            .setColor('#FFD700');
-
-        await giveaway.message.edit({ embeds: [embed] });
-        return interaction.reply({ content: 'You joined the giveaway!', ephemeral: true });
-    }
-
-    /* Double or Keep Buttons */
-    if (interaction.customId.startsWith('dork_double_') || interaction.customId.startsWith('dork_keep_')) {
-        const gameId = interaction.customId.split('_').slice(2).join('_');
-        const game = client.dorkGames.get(gameId);
-        if (!game) return interaction.reply({ content: 'Game expired.', ephemeral: true });
-
-        if (game.winner && game.winner !== interaction.user.id)
-            return interaction.reply({ content: 'Only the winner can choose!', ephemeral: true });
-
-        game.winner = interaction.user.id;
-
-        if (interaction.customId.includes('double')) {
-            const newAmount = game.amount * 2;
-            const newEmbed = new EmbedBuilder()
-                .setTitle(`💰 Double or Keep — $${formatMoney(newAmount * 1e6)}`)
-                .setDescription(`Maximum: $${formatMoney(game.maxAmount * 1e6)}\nHosted by: <@${game.hostId}>\nEnding: <t:${Math.floor(Date.now() / 1000 + 600)}:R>`)
-                .setColor('#00FF00');
-
-            await interaction.update({ embeds: [newEmbed], components: interaction.message.components });
-            game.amount = newAmount; // update amount for next round
-        } else {
-            await interaction.update({ content: `Game ended! Winner: <@${game.winner}> chose Keep.`, embeds: [], components: [] });
-            client.dorkGames.delete(gameId);
+    const participantsArr = Array.from(giveaway.participants);
+    let winners = [];
+    if (participantsArr.length <= giveaway.winnersCount) winners = participantsArr;
+    else {
+        while (winners.length < giveaway.winnersCount) {
+            const pick = participantsArr[Math.floor(Math.random() * participantsArr.length)];
+            if (!winners.includes(pick)) winners.push(pick);
         }
-    }
-});
-
-/* ---------- /gend COMMAND ---------- */
-client.on(Events.InteractionCreate, async interaction => {
-    if (!interaction.isChatInputCommand()) return;
-    if (interaction.commandName !== 'gend') return;
-
-    const inputId = interaction.options.getString('messageid'); // optional
-    let giveaway;
-
-    if (inputId) {
-        giveaway = [...client.giveaways.values()].find(g => g.message.id === inputId);
-        if (!giveaway) return interaction.reply({ content: 'Giveaway not found with that ID.', ephemeral: true });
-    } else {
-        giveaway = [...client.giveaways.values()].pop(); // most recent
-        if (!giveaway) return interaction.reply({ content: 'No active giveaways.', ephemeral: true });
-    }
-
-    const winners = [];
-    const participantsCopy = [...giveaway.participants];
-    for (let i = 0; i < Math.min(giveaway.winnersCount, participantsCopy.length); i++) {
-        const winner = participantsCopy.splice(Math.floor(Math.random() * participantsCopy.length), 1)[0];
-        winners.push(winner);
     }
 
     const embed = new EmbedBuilder()
-        .setTitle(`🎉 **${giveaway.prize}**`)
-        .setDescription(`${giveaway.description}\n\nEnded: <t:${Math.floor(Date.now() / 1000)}:R>\nHosted by: <@${giveaway.hostId}>\nEntries: ${giveaway.participants.length}\nWinner(s): ${formatWinners(winners)}`)
-        .setColor('#FFD700');
+        .setTitle(`🎉 ${giveaway.prize}`)
+        .setDescription(`${giveaway.description}\nHosted by: ${giveaway.host}\nWinners: ${winners.map(u=>`<@${u}>`).join(', ')}`)
+        .setColor('Random');
 
-    await giveaway.message.edit({ embeds: [embed], components: [] });
-    client.giveaways.delete([...client.giveaways.keys()].find(k => client.giveaways.get(k) === giveaway));
+    const msg = await channel.messages.fetch(messageId).catch(()=>null);
+    if (msg) await msg.edit({ embeds: [embed], components: [] });
 
-    interaction.reply({ content: `Giveaway ended manually. Winner(s): ${formatWinners(winners)}` });
-});
+    giveaways.delete(messageId);
+}
+
+// You can add similar function endDork(msgId) to handle Double-or-Keep logic automatically
