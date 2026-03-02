@@ -425,23 +425,6 @@ client.once(Events.ClientReady, () => {
 
 // ─── LOGIN ───
 client.login(process.env.TOKEN);
-// ─── IMPORTS ───
-const {
-    Client,
-    GatewayIntentBits,
-    SlashCommandBuilder,
-    REST,
-    Routes,
-    PermissionFlagsBits,
-    EmbedBuilder,
-    ActionRowBuilder,
-    ButtonBuilder,
-    ButtonStyle,
-    TextInputBuilder,
-    TextInputStyle,
-    Events,
-    Collection
-} = require('discord.js');
 
 // ─── CLIENT SETUP ───
 const client = new Client({
