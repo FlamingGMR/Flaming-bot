@@ -426,15 +426,6 @@ client.once(Events.ClientReady, () => {
 // ─── LOGIN ───
 client.login(process.env.TOKEN);
 
-// ─── CLIENT SETUP ───
-const client = new Client({
-    intents: [
-        GatewayIntentBits.Guilds,
-        GatewayIntentBits.GuildMembers,
-        GatewayIntentBits.GuildMessages,
-        GatewayIntentBits.MessageContent
-    ]
-});
 
 // ─── DATA STORAGE ───
 let warnings = {}; // userID -> warning count
