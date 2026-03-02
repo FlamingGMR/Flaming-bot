@@ -105,7 +105,7 @@ client.on('interactionCreate', async (interaction) => {
 });
 
 // Part 3: Number Shortcuts, Spawner Calculator, Giveaway Join, and Embeds
-const { EmbedBuilder, Collection } = require('discord.js');
+
 
 // Helper: parse numbers with shortcuts k, m, b
 function parseNumber(input) {
