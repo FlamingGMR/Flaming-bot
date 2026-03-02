@@ -25,7 +25,6 @@ const client = new Client({
 });
 
 let warnings = {};
-let giveaways = new Map();
 
 /* ---------------- UTILITIES ---------------- */
 
@@ -250,9 +249,6 @@ client.login(process.env.TOKEN);
 
 /* ---------------- GIVEAWAY & DOUBLE OR KEEP ---------------- */
 
-const { Collection } = require('discord.js');
-client.giveaways = new Collection(); // store active giveaways
-client.dorkGames = new Collection(); // store active Double or Keep
 
 /* HELPER FUNCTIONS */
 
