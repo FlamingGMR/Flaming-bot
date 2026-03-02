@@ -12,7 +12,9 @@ const {
     ModalBuilder,
     TextInputBuilder,
     TextInputStyle,
-    Events
+    Events,
+    Collection
+
 } = require('discord.js');
 
 const client = new Client({
