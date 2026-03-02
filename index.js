@@ -369,3 +369,213 @@ client.on(Events.InteractionCreate, async interaction => {
         await interaction.reply({ content: `You chose ${interaction.customId.includes('double') ? 'Double' : 'Keep'}`, ephemeral: true });
     }
 });
+
+const { Collection, EmbedBuilder, ButtonBuilder, ButtonStyle, ActionRowBuilder, Events } = require('discord.js');
+
+client.giveaways = new Collection(); // Active giveaways
+client.dorkGames = new Collection(); // Active Double/Keep games
+
+/* ---------- HELPERS ---------- */
+function formatMoney(value) {
+    if (value >= 1e6) return `${value / 1e6}M`;
+    return value.toString();
+}
+
+function formatWinners(winners) {
+    if (winners.length === 1) return `<@${winners[0]}>`;
+    if (winners.length === 2) return winners.map(id => `<@${id}>`).join(' and ');
+    const last = winners.pop();
+    return winners.map(id => `<@${id}>`).join(', ') + ', and ' + `<@${last}>`;
+}
+
+function parseTime(str) {
+    const match = str.match(/(\d+)([smhd])/);
+    if (!match) return null;
+    const n = parseInt(match[1]);
+    const unit = match[2];
+    if (unit === 's') return n * 1000;
+    if (unit === 'm') return n * 60 * 1000;
+    if (unit === 'h') return n * 60 * 60 * 1000;
+    if (unit === 'd') return n * 24 * 60 * 60 * 1000;
+    return null;
+}
+
+/* ---------- GIVEAWAY COMMAND ---------- */
+client.on(Events.InteractionCreate, async interaction => {
+    if (!interaction.isChatInputCommand()) return;
+
+    /* ---- Create Giveaway ---- */
+    if (interaction.commandName === 'giveaway') {
+        const prize = interaction.options.getString('prize');
+        const description = interaction.options.getString('description');
+        const winnersCount = interaction.options.getInteger('winners');
+        const durationInput = interaction.options.getString('time');
+        const duration = parseTime(durationInput);
+        if (!duration) return interaction.reply({ content: 'Invalid time format', ephemeral: true });
+
+        const endTimestamp = Date.now() + duration;
+        const giveawayId = `${interaction.id}-${Date.now()}`;
+        const participants = [];
+
+        const joinButton = new ButtonBuilder()
+            .setCustomId(`giveaway_join_${giveawayId}`)
+            .setLabel('Join')
+            .setStyle(ButtonStyle.Primary);
+
+        const row = new ActionRowBuilder().addComponents(joinButton);
+
+        const embed = new EmbedBuilder()
+            .setTitle(`🎉 **${prize}**`)
+            .setDescription(`${description}\n\nEnding: <t:${Math.floor(endTimestamp / 1000)}:R>\nHosted by: <@${interaction.user.id}>\nEntries: 0`)
+            .setColor('#FFD700');
+
+        const msg = await interaction.reply({ embeds: [embed], components: [row], fetchReply: true });
+
+        client.giveaways.set(giveawayId, {
+            message: msg,
+            prize,
+            description,
+            hostId: interaction.user.id,
+            participants,
+            endTimestamp,
+            winnersCount
+        });
+
+        /* Auto end giveaway */
+        setTimeout(async () => {
+            const giveaway = client.giveaways.get(giveawayId);
+            if (!giveaway) return;
+
+            const participantsCopy = [...giveaway.participants];
+            if (participantsCopy.length === 0) {
+                await giveaway.message.edit({ embeds: [embed.setDescription(`${description}\n\nEnded: <t:${Math.floor(Date.now() / 1000)}:R>\nHosted by: <@${interaction.user.id}>\nEntries: 0`)], components: [] });
+                client.giveaways.delete(giveawayId);
+                return;
+            }
+
+            const winners = [];
+            for (let i = 0; i < Math.min(giveaway.winnersCount, participantsCopy.length); i++) {
+                const winnerIndex = Math.floor(Math.random() * participantsCopy.length);
+                winners.push(participantsCopy.splice(winnerIndex, 1)[0]);
+            }
+
+            await giveaway.message.edit({
+                embeds: [embed.setDescription(`${description}\n\nEnded: <t:${Math.floor(Date.now() / 1000)}:R>\nHosted by: <@${giveaway.hostId}>\nEntries: ${giveaway.participants.length}\nWinner(s): ${formatWinners(winners)}`)],
+                components: []
+            });
+
+            client.giveaways.delete(giveawayId);
+        }, duration);
+    }
+
+    /* ---- Double or Keep ---- */
+    if (interaction.commandName === 'gcreatedork') {
+        const startAmountInput = interaction.options.getString('startamount'); // in millions
+        const maxAmountInput = interaction.options.getString('maxamount'); // in millions
+        const durationInput = interaction.options.getString('time'); // e.g., 5m, 1h
+
+        const startAmount = parseInt(startAmountInput);
+        const maxAmount = parseInt(maxAmountInput);
+        const duration = parseTime(durationInput);
+        if (!startAmount || !maxAmount || !duration) return interaction.reply({ content: 'Invalid input', ephemeral: true });
+
+        const endTimestamp = Date.now() + duration;
+        const gameId = `${interaction.id}-${Date.now()}`;
+
+        const row = new ActionRowBuilder().addComponents(
+            new ButtonBuilder().setCustomId(`dork_double_${gameId}`).setLabel('Double').setStyle(ButtonStyle.Success),
+            new ButtonBuilder().setCustomId(`dork_keep_${gameId}`).setLabel('Keep').setStyle(ButtonStyle.Danger)
+        );
+
+        const embed = new EmbedBuilder()
+            .setTitle(`💰 Double or Keep — $${formatMoney(startAmount * 1e6)}`)
+            .setDescription(`Maximum: $${formatMoney(maxAmount * 1e6)}\nHosted by: <@${interaction.user.id}>\nEnding: <t:${Math.floor(endTimestamp / 1000)}:R>`)
+            .setColor('#00FF00');
+
+        const msg = await interaction.reply({ embeds: [embed], components: [row], fetchReply: true });
+
+        client.dorkGames.set(gameId, { message: msg, amount: startAmount, maxAmount, hostId: interaction.user.id, endTimestamp, winner: null });
+    }
+});
+
+/* ---------- BUTTON HANDLER ---------- */
+client.on(Events.InteractionCreate, async interaction => {
+    if (!interaction.isButton()) return;
+
+    /* Giveaway Join */
+    if (interaction.customId.startsWith('giveaway_join_')) {
+        const id = interaction.customId.replace('giveaway_join_', '');
+        const giveaway = client.giveaways.get(id);
+        if (!giveaway) return interaction.reply({ content: 'Giveaway ended or invalid.', ephemeral: true });
+
+        if (!giveaway.participants.includes(interaction.user.id)) giveaway.participants.push(interaction.user.id);
+
+        const embed = new EmbedBuilder()
+            .setTitle(`🎉 **${giveaway.prize}**`)
+            .setDescription(`${giveaway.description}\n\nEnding: <t:${Math.floor(giveaway.endTimestamp / 1000)}:R>\nHosted by: <@${giveaway.hostId}>\nEntries: ${giveaway.participants.length}`)
+            .setColor('#FFD700');
+
+        await giveaway.message.edit({ embeds: [embed] });
+        return interaction.reply({ content: 'You joined the giveaway!', ephemeral: true });
+    }
+
+    /* Double or Keep Buttons */
+    if (interaction.customId.startsWith('dork_double_') || interaction.customId.startsWith('dork_keep_')) {
+        const gameId = interaction.customId.split('_').slice(2).join('_');
+        const game = client.dorkGames.get(gameId);
+        if (!game) return interaction.reply({ content: 'Game expired.', ephemeral: true });
+
+        if (game.winner && game.winner !== interaction.user.id)
+            return interaction.reply({ content: 'Only the winner can choose!', ephemeral: true });
+
+        game.winner = interaction.user.id;
+
+        if (interaction.customId.includes('double')) {
+            const newAmount = game.amount * 2;
+            const newEmbed = new EmbedBuilder()
+                .setTitle(`💰 Double or Keep — $${formatMoney(newAmount * 1e6)}`)
+                .setDescription(`Maximum: $${formatMoney(game.maxAmount * 1e6)}\nHosted by: <@${game.hostId}>\nEnding: <t:${Math.floor(Date.now() / 1000 + 600)}:R>`)
+                .setColor('#00FF00');
+
+            await interaction.update({ embeds: [newEmbed], components: interaction.message.components });
+            game.amount = newAmount; // update amount for next round
+        } else {
+            await interaction.update({ content: `Game ended! Winner: <@${game.winner}> chose Keep.`, embeds: [], components: [] });
+            client.dorkGames.delete(gameId);
+        }
+    }
+});
+
+/* ---------- /gend COMMAND ---------- */
+client.on(Events.InteractionCreate, async interaction => {
+    if (!interaction.isChatInputCommand()) return;
+    if (interaction.commandName !== 'gend') return;
+
+    const inputId = interaction.options.getString('messageid'); // optional
+    let giveaway;
+
+    if (inputId) {
+        giveaway = [...client.giveaways.values()].find(g => g.message.id === inputId);
+        if (!giveaway) return interaction.reply({ content: 'Giveaway not found with that ID.', ephemeral: true });
+    } else {
+        giveaway = [...client.giveaways.values()].pop(); // most recent
+        if (!giveaway) return interaction.reply({ content: 'No active giveaways.', ephemeral: true });
+    }
+
+    const winners = [];
+    const participantsCopy = [...giveaway.participants];
+    for (let i = 0; i < Math.min(giveaway.winnersCount, participantsCopy.length); i++) {
+        const winner = participantsCopy.splice(Math.floor(Math.random() * participantsCopy.length), 1)[0];
+        winners.push(winner);
+    }
+
+    const embed = new EmbedBuilder()
+        .setTitle(`🎉 **${giveaway.prize}**`)
+        .setDescription(`${giveaway.description}\n\nEnded: <t:${Math.floor(Date.now() / 1000)}:R>\nHosted by: <@${giveaway.hostId}>\nEntries: ${giveaway.participants.length}\nWinner(s): ${formatWinners(winners)}`)
+        .setColor('#FFD700');
+
+    await giveaway.message.edit({ embeds: [embed], components: [] });
+    client.giveaways.delete([...client.giveaways.keys()].find(k => client.giveaways.get(k) === giveaway));
+
+    interaction.reply({ content: `Giveaway ended manually. Winner(s): ${formatWinners(winners)}` });
+});
