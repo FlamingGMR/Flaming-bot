@@ -481,8 +481,7 @@ const rest = new REST({ version: '10' }).setToken(process.env.TOKEN);
     }
 })();
 
-	client.login(process.env.TOKEN);
-
- .then(() => console.log("Login successful"))
-  .catch(err => console.error(err));
+client.login(process.env.TOKEN)
+  .then(() => console.log("Login successful"))
+  .catch(err => console.error("Login failed:", err));
 
