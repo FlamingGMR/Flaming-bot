@@ -1,15 +1,11 @@
 {
   "name": "flaming-bot",
   "version": "1.0.0",
-  "description": "Discord bot for FlamingGMR Hangout",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
   },
-  "author": "Fawzi",
-  "license": "MIT",
   "dependencies": {
-    "discord.js": "^14.13.0",
-    "dotenv": "^16.3.1"
+    "discord.js": "^14.14.1"
   }
 }

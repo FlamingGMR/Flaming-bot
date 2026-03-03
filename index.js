@@ -1,5 +1,11 @@
 // Part 1: Imports, client setup, collections, and helpers
+console.log("Bot file started loading...");
+console.log("INDEX FILE STARTED");
+process.on('unhandledRejection', console.error);
+process.on('uncaughtException', console.error);
 const { Client, GatewayIntentBits, Collection, EmbedBuilder } = require('discord.js');
+const { REST, Routes, SlashCommandBuilder } = require('discord.js');
+
 const fs = require('fs');
 const path = require('path');
 
@@ -371,3 +377,109 @@ client.on('interactionCreate', async (interaction) => {
         await interaction.reply({ embeds: [embed] });
     }
 });
+// -------- SLASH COMMAND REGISTRATION --------
+
+const commands = [
+
+    new SlashCommandBuilder()
+        .setName('smoker')
+        .setDescription('Calculate smoker profit')
+        .addStringOption(option =>
+            option.setName('amount')
+                .setDescription('Number of smokers (supports k/m)')
+                .setRequired(true)
+        ),
+
+    new SlashCommandBuilder()
+        .setName('spawner')
+        .setDescription('Calculate spawner total price')
+        .addStringOption(option =>
+            option.setName('count')
+                .setDescription('Number of spawners (supports k/m)')
+                .setRequired(true)
+        )
+        .addStringOption(option =>
+            option.setName('price')
+                .setDescription('Price per spawner (supports k/m)')
+                .setRequired(true)
+        ),
+
+    new SlashCommandBuilder()
+        .setName('embed')
+        .setDescription('Send a custom embed')
+        .addStringOption(option =>
+            option.setName('title')
+                .setDescription('Embed title')
+                .setRequired(true)
+        )
+        .addStringOption(option =>
+            option.setName('description')
+                .setDescription('Embed description')
+                .setRequired(true)
+        ),
+
+    new SlashCommandBuilder()
+        .setName('warn')
+        .setDescription('Warn a user')
+        .addUserOption(option =>
+            option.setName('user')
+                .setDescription('User to warn')
+                .setRequired(true)
+        )
+        .addStringOption(option =>
+            option.setName('reason')
+                .setDescription('Reason')
+                .setRequired(false)
+        ),
+
+    new SlashCommandBuilder()
+        .setName('ban')
+        .setDescription('Ban a user')
+        .addUserOption(option =>
+            option.setName('user')
+                .setDescription('User to ban')
+                .setRequired(true)
+        )
+        .addStringOption(option =>
+            option.setName('reason')
+                .setDescription('Reason')
+                .setRequired(false)
+        ),
+
+    new SlashCommandBuilder()
+        .setName('timeout')
+        .setDescription('Timeout a user')
+        .addUserOption(option =>
+            option.setName('user')
+                .setDescription('User to timeout')
+                .setRequired(true)
+        )
+        .addStringOption(option =>
+            option.setName('duration')
+                .setDescription('Duration in seconds (supports k/m)')
+                .setRequired(true)
+        ),
+
+].map(command => command.toJSON());
+
+
+// REGISTER COMMANDS
+const rest = new REST({ version: '10' }).setToken("MTQ3NzY2MTk1Mzg4MjMyOTE3OQ.G022mR.EGd0dv2YJ44MSwvWV-VcuTpoFnJxyG7HZHjpaw");
+
+(async () => {
+    try {
+        console.log('Registering slash commands...');
+        await rest.put(
+            Routes.applicationCommands("1477661953882329179"),
+            { body: commands }
+        );
+        console.log('Slash commands registered successfully.');
+    } catch (error) {
+        console.error(error);
+    }
+})();
+
+	client.login("MTQ3NzY2MTk1Mzg4MjMyOTE3OQ.G022mR.EGd0dv2YJ44MSwvWV-VcuTpoFnJxyG7HZHjpaw");
+ .then(() => console.log("Login successful"))
+  .catch(err => console.error(err));
+
