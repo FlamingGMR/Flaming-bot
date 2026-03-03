@@ -1,4 +1,5 @@
 // Part 1: Imports, client setup, collections, and helpers
+require('dotenv').config();
 console.log("Bot file started loading...");
 console.log("INDEX FILE STARTED");
 process.on('unhandledRejection', console.error);
@@ -464,7 +465,8 @@ const commands = [
 
 
 // REGISTER COMMANDS
-const rest = new REST({ version: '10' }).setToken("MTQ3NzY2MTk1Mzg4MjMyOTE3OQ.G022mR.EGd0dv2YJ44MSwvWV-VcuTpoFnJxyG7HZHjpaw");
+const rest = new REST({ version: '10' }).setToken(process.env.TOKEN);
+
 
 (async () => {
     try {
@@ -479,7 +481,8 @@ const rest = new REST({ version: '10' }).setToken("MTQ3NzY2MTk1Mzg4MjMyOTE3OQ.G0
     }
 })();
 
-	client.login("MTQ3NzY2MTk1Mzg4MjMyOTE3OQ.G022mR.EGd0dv2YJ44MSwvWV-VcuTpoFnJxyG7HZHjpaw");
+	client.login(process.env.TOKEN);
+
  .then(() => console.log("Login successful"))
   .catch(err => console.error(err));
 
