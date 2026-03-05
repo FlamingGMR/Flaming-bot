@@ -218,6 +218,89 @@ o.setName("messageid")
 )
 )
 .setDefaultMemberPermissions(PermissionFlagsBits.ManageEvents),
+// ── DONUT SMP: STATS ─────────────────────────────────────
+new SlashCommandBuilder()
+.setName("stats")
+.setDescription("View a DonutSMP player's in-game stats")
+.addStringOption(o =>
+o.setName("username")
+.setDescription("In-game username")
+.setRequired(true)
+),
+// ── DONUT SMP: LOOKUP ─────────────────────────────────────
+new SlashCommandBuilder()
+.setName("lookup")
+.setDescription("Look up a DonutSMP player's rank and location")
+.addStringOption(o =>
+o.setName("username")
+.setDescription("In-game username")
+.setRequired(true)
+),
+// ── DONUT SMP: AUCTION HOUSE ──────────────────────────────
+new SlashCommandBuilder()
+.setName("ah")
+.setDescription("Search the DonutSMP Auction House for an item")
+.addStringOption(o =>
+o.setName("item")
+.setDescription("Item name to search for (e.g. diamond, sword)")
+.setRequired(true)
+)
+.addStringOption(o =>
+
+o.setName("sort")
+.setDescription("Sort order")
+.setRequired(false)
+.addChoices(
+{ name: "Lowest Price", value: "lowest_price" },
+{ name: "Highest Price", value: "highest_price" },
+{ name: "Recently Listed", value: "recently_listed" },
+{ name: "Last Listed", value: "last_listed" }
+)
+),
+// ── DONUT SMP: AUCTION TRANSACTIONS ──────────────────────
+new SlashCommandBuilder()
+.setName("ah-recent")
+.setDescription("View recent DonutSMP Auction House sales")
+.addIntegerOption(o =>
+o.setName("page")
+.setDescription("Page number (1–10, 100 sales per page)")
+.setRequired(false)
+.setMinValue(1)
+.setMaxValue(10)
+),
+// ── DONUT SMP: LEADERBOARD ───────────────────────────────
+new SlashCommandBuilder()
+.setName("leaderboard")
+.setDescription("View DonutSMP leaderboards")
+.addStringOption(o =>
+o.setName("type")
+.setDescription("Which leaderboard to view")
+.setRequired(true)
+.addChoices(
+{ name: " Money", value: "money" },
+{ name: " Kills", value: "kills" },
+{ name: " Deaths", value: "deaths" },
+{ name: " Playtime", value: "playtime" },
+{ name: " Shards", value: "shards" },
+{ name: " Most Sold (/sell)", value: "sell" },
+{ name: " Most Spent (/shop)", value: "shop" },
+{ name: " Mobs Killed", value: "mobskilled" },
+{ name: " Blocks Broken", value: "brokenblocks" },
+{ name: " Blocks Placed", value: "placedblocks" }
+)
+)
+.addIntegerOption(o =>
+
+o.setName("page")
+.setDescription("Page number (default: 1)")
+.setRequired(false)
+.setMinValue(1)
+),
+// ── SPAWNER PRICE SEND ───────────────────────────────────
+new SlashCommandBuilder()
+.setName("spawnerpricesend")
+.setDescription("Post the current spawner prices in the channel")
+.setDefaultMemberPermissions(PermissionFlagsBits.ManageMessages),
 ].map(cmd => cmd.toJSON());
 // ============================================================
 // REGISTER SLASH COMMANDS VIA REST
@@ -285,8 +368,8 @@ const keepBtn = new ButtonBuilder()
 const doubleLabel = forceDisableDouble
 ? " Double (N/A)"
 : ` Double (→ ${formatNumber(doubled)})`;
-
 const doubleBtn = new ButtonBuilder()
+
 .setCustomId(`dork_double_${dorkId}`)
 .setLabel(doubleLabel)
 .setStyle(ButtonStyle.Danger)
@@ -323,8 +406,8 @@ return interaction.reply({ embeds: [errorEmbed("That user is not in this server.
 }
 const embed = new EmbedBuilder()
 .setColor(0xf39c12)
-
 .setTitle(" Member Warned")
+
 .addFields(
 { name: " User", value: `<@${target.id}> (${target.tag})`, inline: true },
 { name: " Moderator", value: `<@${interaction.user.id}>`, inline: true },
@@ -364,8 +447,8 @@ return interaction.reply({ embeds: [embed] });
 // MODERATION: /unban
 // ==========================================================
 if (commandName === "unban") {
-
 const userId = interaction.options.getString("userid").trim();
+
 const reason = interaction.options.getString("reason") ?? "No reason provided";
 let user;
 try {
@@ -444,8 +527,8 @@ return interaction.reply({ embeds: [errorEmbed("That user is not currently timed
 await member.timeout(null, reason);
 const embed = new EmbedBuilder()
 .setColor(0x2ecc71)
-
 .setTitle(" Timeout Removed")
+
 .addFields(
 { name: " User", value: `<@${target.id}> (${target.tag})`, inline: true },
 { name: " Moderator", value: `<@${interaction.user.id}>`, inline: true },
@@ -485,8 +568,8 @@ return interaction.reply({ embeds: [embed] });
 }
 // ==========================================================
 // ROLE MANAGEMENT: /removerole
-
 // ==========================================================
+
 if (commandName === "removerole") {
 const target = interaction.options.getUser("user");
 const role = interaction.options.getRole("role");
@@ -527,8 +610,8 @@ if (isNaN(parsed)) {
 return interaction.reply({ embeds: [errorEmbed("Invalid hex color. Example: `#ff0000`")], ephemeral: true });
 }
 color = parsed;
-
 }
+
 const embed = new EmbedBuilder()
 .setColor(color)
 .setTitle(title)
@@ -567,8 +650,8 @@ return interaction.reply({ embeds: [embed] });
 // ==========================================================
 if (commandName === "spawner") {
 const amountStr = interaction.options.getString("amount");
-
 const type = interaction.options.getString("type"); // "buy" or "sell"
+
 const amount = parseNumber(amountStr);
 if (isNaN(amount) || amount <= 0) {
 return interaction.reply({ embeds: [errorEmbed("Invalid amount. Use a number like `10`, `5k`, `2m`.")], ephemeral: true });
@@ -608,8 +691,8 @@ if (type === "buy") {
 spawnerConfig.buyPrice = price;
 } else {
 spawnerConfig.sellPrice = price;
-
 }
+
 const label = type === "buy" ? "Buy Price (server pays players)" : "Sell Price (players pay server)";
 const embed = new EmbedBuilder()
 .setColor(0x2ecc71)
@@ -626,6 +709,226 @@ text: `Current prices — Buy: ${formatNumber(spawnerConfig.buyPrice)} | Sell: $
 return interaction.reply({ embeds: [embed] });
 }
 // ==========================================================
+// SPAWNER PRICE SEND: /spawnerpricesend
+// ==========================================================
+if (commandName === "spawnerpricesend") {
+const embed = new EmbedBuilder()
+.setColor(0xf1c40f)
+.setTitle(" Spawner Prices")
+.addFields(
+{
+name: " We Buy For",
+value: `**$${formatNumber(spawnerConfig.buyPrice)}** per spawner`,
+inline: false,
+},
+{
+name: " We Sell For",
+value: `**$${formatNumber(spawnerConfig.sellPrice)}** per spawner`,
+inline: false,
+},
+{
+name: "",
+value: "**We never go first and if you are going with owner we only go all at once**",
+inline: false,
+}
+)
+.setTimestamp();
+await interaction.reply({ content: " Spawner prices posted!", ephemeral: true });
+return interaction.channel.send({ embeds: [embed] });
+
+}
+// ==========================================================
+// API Part 2: DonutSMP Command Handlers
+// ==========================================================
+// ==========================================================
+// DONUT SMP: /stats
+// ==========================================================
+if (commandName === "stats") {
+const username = interaction.options.getString("username");
+await interaction.deferReply();
+const result = await donutAPI(`/v1/stats/${encodeURIComponent(username)}`);
+if (!result.ok) {
+return interaction.editReply({ embeds: [errorEmbed(result.message)] });
+}
+const s = result.data.result;
+const money = parseFloat(s.money) || 0;
+const embed = new EmbedBuilder()
+.setColor(0x3498db)
+.setTitle(` Stats — ${username}`)
+.setThumbnail(`https://mc-heads.net/avatar/${encodeURIComponent(username)}/64`)
+.addFields(
+{ name: " Balance", value: `$${formatNumber(money)}`, inline: true },
+{ name: " Shards", value: String(s.shards ?? "0"), inline: true },
+{ name: " Kills", value: String(s.kills ?? "0"), inline: true },
+{ name: " Deaths", value: String(s.deaths ?? "0"), inline: true },
+{ name: " Mobs Killed", value: String(s.mobs_killed ?? "0"), inline: true },
+{ name: " Playtime", value: formatPlaytime(s.playtime ?? 0), inline: true },
+{ name: " Blocks Broken", value: String(s.broken_blocks ?? "0"), inline: true },
+{ name: " Blocks Placed", value: String(s.placed_blocks ?? "0"), inline: true },
+{ name: " Earned from /sell", value: `$${formatNumber(parseFloat(s.money_made_from_sell) || 0)}`, inline: true },
+{ name: " Spent on /shop", value: `$${formatNumber(parseFloat(s.money_spent_on_shop) || 0)}`, inline: true }
+)
+.setFooter({ text: "DonutSMP Stats" })
+.setTimestamp();
+return interaction.editReply({ embeds: [embed] });
+}
+// ==========================================================
+// DONUT SMP: /lookup
+// ==========================================================
+if (commandName === "lookup") {
+
+const username = interaction.options.getString("username");
+await interaction.deferReply();
+const result = await donutAPI(`/v1/lookup/${encodeURIComponent(username)}`);
+if (!result.ok) {
+return interaction.editReply({ embeds: [errorEmbed(result.message)] });
+}
+const p = result.data.result;
+const embed = new EmbedBuilder()
+.setColor(0x9b59b6)
+.setTitle(` Lookup — ${p.username ?? username}`)
+.setThumbnail(`https://mc-heads.net/avatar/${encodeURIComponent(username)}/64`)
+.addFields(
+{ name: " Username", value: p.username ?? username, inline: true },
+{ name: " Rank", value: p.rank ?? "None", inline: true },
+{ name: " Location", value: p.location ?? "Unknown", inline: true }
+)
+.setFooter({ text: "DonutSMP Lookup" })
+.setTimestamp();
+return interaction.editReply({ embeds: [embed] });
+}
+// ==========================================================
+// DONUT SMP: /ah
+// ==========================================================
+if (commandName === "ah") {
+const item = interaction.options.getString("item");
+const sort = interaction.options.getString("sort") ?? "lowest_price";
+await interaction.deferReply();
+const result = await donutAPI(`/v1/auction/list/1`, {
+method: "GET",
+body: JSON.stringify({ search: item, sort }),
+});
+if (!result.ok) {
+return interaction.editReply({ embeds: [errorEmbed(result.message)] });
+}
+const listings = result.data.result;
+if (!listings || listings.length === 0) {
+return interaction.editReply({
+embeds: [errorEmbed(`No auction listings found for **${item}**.`)],
+});
+
+}
+// Show top 10 results max to avoid embed overflow
+const shown = listings.slice(0, 10);
+const lines = shown.map((entry, i) => {
+const name = entry.item?.display_name ?? entry.item?.id ?? "Unknown Item";
+const count = entry.item?.count > 1 ? ` x${entry.item.count}` : "";
+const price = `$${formatNumber(entry.price ?? 0)}`;
+const seller = entry.seller?.name ?? "Unknown";
+const timeLeft = formatTimeLeft(entry.time_left ?? 0);
+const enchants = formatEnchants(entry.item?.enchants);
+const enchantStr = enchants ? ` *(${enchants})*` : "";
+return `**${i + 1}.** ${name}${count}${enchantStr}\n└ ${price} | ${seller} | ${timeLeft}`;
+});
+const embed = new EmbedBuilder()
+.setColor(0xf1c40f)
+.setTitle(` Auction House — "${item}"`)
+.setDescription(lines.join("\n\n"))
+.setFooter({ text: `Showing ${shown.length} of ${listings.length} results • Sorted by ${sort.replace(/_/g, " ")}` })
+.setTimestamp();
+return interaction.editReply({ embeds: [embed] });
+}
+// ==========================================================
+// DONUT SMP: /ah-recent
+// ==========================================================
+if (commandName === "ah-recent") {
+const page = interaction.options.getInteger("page") ?? 1;
+await interaction.deferReply();
+const result = await donutAPI(`/v1/auction/transactions/${page}`);
+if (!result.ok) {
+return interaction.editReply({ embeds: [errorEmbed(result.message)] });
+}
+const transactions = result.data.result;
+if (!transactions || transactions.length === 0) {
+return interaction.editReply({
+embeds: [errorEmbed("No recent auction transactions found.")],
+});
+}
+const shown = transactions.slice(0, 10);
+
+const lines = shown.map((entry, i) => {
+const name = entry.item?.display_name ?? entry.item?.id ?? "Unknown Item";
+const count = entry.item?.count > 1 ? ` x${entry.item.count}` : "";
+const price = `$${formatNumber(entry.price ?? 0)}`;
+const seller = entry.seller?.name ?? "Unknown";
+const soldAt = entry.unixMillisDateSold
+? `<t:${Math.floor(entry.unixMillisDateSold / 1000)}:R>`
+: "Unknown";
+const enchants = formatEnchants(entry.item?.enchants);
+const enchantStr = enchants ? ` *(${enchants})*` : "";
+return `**${i + 1}.** ${name}${count}${enchantStr}\n└ ${price} | ${seller} | ${soldAt}`;
+});
+const embed = new EmbedBuilder()
+.setColor(0xe67e22)
+.setTitle(` Recent Auction Sales — Page ${page}`)
+.setDescription(lines.join("\n\n"))
+.setFooter({ text: `Showing ${shown.length} of ${transactions.length} on this page • 100 per page` })
+.setTimestamp();
+return interaction.editReply({ embeds: [embed] });
+}
+// ==========================================================
+// DONUT SMP: /leaderboard
+// ==========================================================
+if (commandName === "leaderboard") {
+const type = interaction.options.getString("type");
+const page = interaction.options.getInteger("page") ?? 1;
+await interaction.deferReply();
+const result = await donutAPI(`/v1/leaderboards/${type}/${page}`);
+if (!result.ok) {
+return interaction.editReply({ embeds: [errorEmbed(result.message)] });
+}
+const entries = result.data.result;
+if (!entries || entries.length === 0) {
+return interaction.editReply({
+embeds: [errorEmbed("No leaderboard data found for that page.")],
+});
+}
+const medals = [" ", " ", " "];
+const startRank = (page - 1) * entries.length + 1;
+const lbMeta = {
+
+money: { label: " Money Leaderboard", unit: "$", isNumber: true },
+kills: { label: " Kills Leaderboard", unit: "", isNumber: false },
+deaths: { label: " Deaths Leaderboard", unit: "", isNumber: false },
+playtime: { label: " Playtime Leaderboard", unit: "", isNumber: false, isTime: true },
+shards: { label: " Shards Leaderboard", unit: "", isNumber: false },
+sell: { label: " Most Earned (/sell)", unit: "$", isNumber: true },
+shop: { label: " Most Spent (/shop)", unit: "$", isNumber: true },
+mobskilled: { label: " Mobs Killed Leaderboard", unit: "", isNumber: false },
+brokenblocks: { label: " Blocks Broken Leaderboard", unit: "", isNumber: false },
+placedblocks: { label: " Blocks Placed Leaderboard", unit: "", isNumber: false },
+};
+const meta = lbMeta[type] ?? { label: `${type} Leaderboard`, unit: "", isNumber: false };
+const lines = entries.map((entry, i) => {
+const rank = startRank + i;
+const medal = rank <= 3 ? medals[rank - 1] : `**${rank}.**`;
+const username = entry.username ?? "Unknown";
+let value = entry.value ?? "0";
+if (meta.isTime) value = formatPlaytime(value);
+else if (meta.isNumber) value = `${meta.unit}${formatNumber(parseFloat(value) || 0)}`;
+else value = `${meta.unit}${value}`;
+return `${medal} ${username} — ${value}`;
+});
+const embed = new EmbedBuilder()
+.setColor(0xf1c40f)
+.setTitle(meta.label)
+.setDescription(lines.join("\n"))
+.setFooter({ text: `Page ${page}` })
+.setTimestamp();
+return interaction.editReply({ embeds: [embed] });
+}
+
+// ==========================================================
 // GIVEAWAY: handled in Part 3
 // ==========================================================
 if (commandName === "giveaway") return handleGiveaway(interaction);
@@ -633,6 +936,7 @@ if (commandName === "giveaway") return handleGiveaway(interaction);
 console.error(` Error handling command "${commandName}":`, err);
 const reply = { embeds: [errorEmbed("Something went wrong. Please try again.")], ephemeral: true };
 if (interaction.replied || interaction.deferred) {
+
 return interaction.followUp(reply);
 }
 return interaction.reply(reply);
@@ -648,7 +952,6 @@ async function handleGiveaway(interaction) {
 const sub = interaction.options.getSubcommand();
 // ── /giveaway create ───────────────────────────────────────
 if (sub === "create") {
-
 const prize = interaction.options.getString("prize");
 const durStr = interaction.options.getString("duration");
 const maxPrizeStr = interaction.options.getString("maxprize");
@@ -674,6 +977,7 @@ description,
 maxPrize,
 endsAt,
 hostId: interaction.user.id,
+
 channelId: interaction.channelId,
 entries: [],
 };
@@ -688,7 +992,6 @@ await interaction.reply({ content: " Giveaway created!", ephemeral: true });
 const msg = await interaction.channel.send({
 embeds: [buildGiveawayEmbed(giveawayData)],
 components: [row],
-
 });
 // Store with the real message ID now that we have it
 giveawayData.messageId = msg.id;
@@ -712,6 +1015,7 @@ await endGiveaway(messageId, interaction.channel);
 // ============================================================
 // END GIVEAWAY LOGIC (used by both auto-timer and /giveaway end)
 // ============================================================
+
 async function endGiveaway(messageId, channel) {
 const data = activeGiveaways.get(messageId);
 if (!data) return; // already ended or never existed
@@ -726,7 +1030,6 @@ console.error(` Could not fetch giveaway message ${messageId}`);
 return;
 }
 // Disable the join button on the original message
-
 const disabledBtn = new ButtonBuilder()
 .setCustomId("giveaway_join")
 .setLabel(" Giveaway Ended")
@@ -752,6 +1055,7 @@ embeds: [
 new EmbedBuilder()
 .setColor(0x95a5a6)
 .setTitle(" Giveaway Ended")
+
 .setDescription(`No one entered the giveaway for **${data.prize}**. No winner selected.`)
 .setTimestamp(),
 ],
@@ -766,7 +1070,6 @@ await startDorkGame(channel, winnerId, data.prize, data.maxPrize);
 // DORK GAME — START
 // ============================================================
 async function startDorkGame(channel, winnerId, prize, maxPrize) {
-
 const dorkId = `${winnerId}_${Date.now()}`;
 const doubled = typeof prize === "number" ? prize * 2 : null;
 // Detect if prize is a numeric value or a text prize
@@ -793,6 +1096,7 @@ const dorkEmbed = new EmbedBuilder()
 )
 .setFooter({ text: `Max prize cap: ${formatNumber(maxPrize)}` })
 .setTimestamp();
+
 const row = buildDorkRow(isNumeric ? prize : 0, maxPrize, dorkId, !isNumeric);
 const dorkMsg = await channel.send({
 content: `<@${winnerId}>`,
@@ -806,7 +1110,6 @@ activeDorks.set(dorkMsg.id, dorkData);
 // BUTTON HANDLER (giveaway join + dork keep/double)
 // ============================================================
 async function handleButton(interaction) {
-
 const { customId } = interaction;
 // ── Giveaway Join Button ───────────────────────────────────
 if (customId === "giveaway_join") {
@@ -830,6 +1133,7 @@ data.entries.push(interaction.user.id);
 activeGiveaways.set(messageId, data);
 // Update the giveaway embed to reflect new entry count
 await interaction.message.edit({ embeds: [buildGiveawayEmbed(data)] });
+
 return interaction.reply({
 embeds: [
 new EmbedBuilder()
@@ -846,7 +1150,6 @@ if (customId.startsWith("dork_keep_")) {
 const dorkId = customId.replace("dork_keep_", "");
 const messageId = interaction.message.id;
 const data = activeDorks.get(messageId);
-
 if (!data) {
 return interaction.reply({
 embeds: [errorEmbed("This dork session has already ended.")],
@@ -872,6 +1175,7 @@ const disabledDouble = new ButtonBuilder()
 .setCustomId(`dork_double_${dorkId}`)
 .setLabel(" Double")
 .setStyle(ButtonStyle.Danger)
+
 .setDisabled(true);
 const disabledRow = new ActionRowBuilder().addComponents(disabledKeep, disabledDouble);
 await interaction.message.edit({ components: [disabledRow] });
@@ -887,7 +1191,6 @@ new EmbedBuilder()
 .setDescription(`<@${data.winnerId}> chose keep and won **${displayPrize}**! Congratulations! `)
 .setTimestamp(),
 ],
-
 });
 }
 // ── Dork Double Button ────────────────────────────────────
@@ -913,6 +1216,7 @@ ephemeral: true,
 // This handles text prizes — we switch to numeric doubling from maxPrize context
 let currentNumeric;
 if (typeof data.prize === "number") {
+
 currentNumeric = data.prize;
 } else {
 // First double — we need a numeric base. Use maxPrize / some reasonable factor.
@@ -929,7 +1233,6 @@ const newPrize = currentNumeric * 2;
 // Safety check — should never hit since button is disabled, but belt-and-suspenders
 if (newPrize > data.maxPrize) {
 return interaction.reply({
-
 embeds: [errorEmbed(`Doubling would exceed the max cap of **${formatNumber(data.maxPrize)}**. You can only keep.`)],
 ephemeral: true,
 });
@@ -954,6 +1257,7 @@ await interaction.reply({
 embeds: [
 new EmbedBuilder()
 .setColor(0xf39c12)
+
 .setTitle(" Doubling!")
 .setDescription(`<@${data.winnerId}> chose to double! The prize is now **${formatNumber(newPrize)}**!`)
 .setTimestamp(),
@@ -963,13 +1267,72 @@ new EmbedBuilder()
 await startDorkGame(interaction.channel, data.winnerId, newPrize, data.maxPrize);
 }
 }
+
+// ============================================================
+// index.js — API Part 1: DonutSMP API Helper + Command Routing
+// ============================================================
+// ── DonutSMP API helper ──────────────────────────────────────
+// All API calls go through this function.
+// Returns { ok: true, data } on success or { ok: false, message } on failure.
+async function donutAPI(path, options = {}) {
+const apiKey = process.env.DONUT_API_KEY;
+if (!apiKey) return { ok: false, message: "Missing `DONUT_API_KEY` environment variable on Railway." };
+const url = `https://api.donutsmp.net${path}`;
+const headers = {
+"Authorization": `Bearer ${apiKey}`,
+"Content-Type": "application/json",
+};
+try {
+const res = await fetch(url, { method: options.method || "GET", headers, body: options.body || undefined });
+const json = await res.json();
+if (res.status === 401) return { ok: false, message: "Invalid or missing API key. Check your `DONUT_API_KEY` on Railway." };
+if (res.status === 500) return { ok: false, message: json.message || "The DonutSMP API could not handle this request. The player or item may not exist." };
+if (!res.ok) return { ok: false, message: `API returned status ${res.status}.` };
+return { ok: true, data: json };
+} catch (err) {
+console.error(" DonutSMP API fetch error:", err);
+return { ok: false, message: "Could not reach the DonutSMP API. It may be down." };
+}
+}
+// ── Helper: format playtime from seconds to readable string ──
+function formatPlaytime(seconds) {
+const s = Number(seconds);
+
+if (isNaN(s)) return String(seconds);
+const d = Math.floor(s / 86400);
+const h = Math.floor((s % 86400) / 3600);
+const m = Math.floor((s % 3600) / 60);
+const parts = [];
+if (d > 0) parts.push(`${d}d`);
+if (h > 0) parts.push(`${h}h`);
+if (m > 0) parts.push(`${m}m`);
+return parts.length ? parts.join(" ") : "< 1m";
+}
+// ── Helper: format time_left (seconds) to readable string ────
+function formatTimeLeft(seconds) {
+const s = Number(seconds);
+if (isNaN(s) || s <= 0) return "Expired";
+const d = Math.floor(s / 86400);
+const h = Math.floor((s % 86400) / 3600);
+const m = Math.floor((s % 3600) / 60);
+if (d > 0) return `${d}d ${h}h`;
+if (h > 0) return `${h}h ${m}m`;
+return `${m}m`;
+}
+// ── Helper: format enchantments object to readable string ────
+function formatEnchants(enchants) {
+if (!enchants || !enchants.enchantments || !enchants.enchantments.levels) return null;
+const levels = enchants.enchantments.levels;
+const entries = Object.entries(levels);
+if (!entries.length) return null;
+return entries.map(([name, lvl]) => `${name} ${lvl}`).join(", ");
+}
 // ============================================================
 // CLIENT READY EVENT
 // ============================================================
 client.once("ready", async () => {
 console.log(` Bot logged in as ${client.user.tag}`);
 console.log(` Serving ${client.guilds.cache.size} guild(s)`);
-
 try {
 await registerCommands();
 } catch (err) {
@@ -977,6 +1340,7 @@ console.error(" Command registration failed on ready:", err);
 // Do NOT process.exit here — bot can still function with existing commands
 }
 });
+
 // ============================================================
 // UNHANDLED ERRORS — prevent Railway crash on promise rejection
 // ============================================================
