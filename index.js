@@ -4,6 +4,7 @@
 const {
 Client,
 GatewayIntentBits,
+Partials,
 EmbedBuilder,
 ButtonBuilder,
 ButtonStyle,
@@ -14,6 +15,7 @@ TextInputStyle,
 ChannelType,
 PermissionFlagsBits,
 PermissionsBitField,
+MessageFlags,
 REST,
 Routes,
 SlashCommandBuilder,
@@ -28,7 +30,7 @@ GatewayIntentBits.MessageContent,
 GatewayIntentBits.DirectMessages,
 GatewayIntentBits.DirectMessageReactions,
 ],
-partials: ["CHANNEL", "MESSAGE"], // Required for DM handling in discord.js v14
+partials: [Partials.Channel, Partials.Message], // Required for DM handling in discord.js v14
 });
 // ── In-memory stores ─────────────────────────────────────────
 // Spawner prices (admins can update at runtime)
@@ -36,9 +38,9 @@ const spawnerConfig = {
 buyPrice: 4400000, // server buys FROM players
 sellPrice: 5200000, // server sells TO players
 };
+
 // Active giveaways { messageId -> giveawayData }
 const activeGiveaways = new Map();
-
 // Active dork sessions { messageId -> dorkData }
 const activeDorks = new Map();
 // Active application sessions { userId -> sessionData }
@@ -78,9 +80,9 @@ const match = str.match(/^(\d+(\.\d+)?)([kmb]?)$/);
 if (!match) return NaN;
 const num = parseFloat(match[1]);
 const suffix = match[3];
+
 return suffix ? num * multipliers[suffix] : num;
 }
-
 // ── Helper: format large numbers back to readable string ──────
 function formatNumber(num) {
 if (num >= 1_000_000_000) return (num / 1_000_000_000).toFixed(2).replace(/\.00$/, "") + "b";
@@ -118,9 +120,9 @@ new SlashCommandBuilder()
 new SlashCommandBuilder()
 .setName("ban")
 .setDescription("Ban a member from the server")
+
 .addUserOption(o => o.setName("user").setDescription("Member to ban").setRequired(true))
 .addStringOption(o => o.setName("reason").setDescription("Reason for ban").setRequired(false))
-
 .setDefaultMemberPermissions(PermissionFlagsBits.BanMembers),
 new SlashCommandBuilder()
 .setName("unban")
@@ -159,8 +161,8 @@ new SlashCommandBuilder()
 .addRoleOption(o => o.setName("role").setDescription("Role to remove").setRequired(true))
 .setDefaultMemberPermissions(PermissionFlagsBits.ManageRoles),
 // ── EMBED BUILDER ─────────────────────────────────────────
-new SlashCommandBuilder()
 
+new SlashCommandBuilder()
 .setName("embed")
 .setDescription("Send a custom embed message")
 .addStringOption(o => o.setName("title").setDescription("Embed title").setRequired(true))
@@ -200,9 +202,9 @@ o.setName("type")
 ),
 // ── SPAWNER PRICE CONFIG (Admin) ──────────────────────────
 new SlashCommandBuilder()
+
 .setName("setspawnerprice")
 .setDescription("Set the spawner buy or sell price (Admin only)")
-
 .addStringOption(o =>
 o.setName("type")
 .setDescription("Which price to update?")
@@ -246,9 +248,9 @@ o.setName("description")
 .addSubcommand(sub =>
 sub
 .setName("end")
+
 .setDescription("Force-end a giveaway early")
 .addStringOption(o =>
-
 o.setName("messageid")
 .setDescription("Message ID of the giveaway to end")
 .setRequired(true)
@@ -288,9 +290,9 @@ o.setName("sort")
 .setRequired(false)
 .addChoices(
 { name: "Lowest Price", value: "lowest_price" },
+
 { name: "Highest Price", value: "highest_price" },
 { name: "Recently Listed", value: "recently_listed" },
-
 { name: "Last Listed", value: "last_listed" }
 )
 ),
@@ -332,8 +334,8 @@ o.setName("page")
 .setRequired(false)
 .setMinValue(1)
 ),
-// ── SPAWNER PRICE SEND ───────────────────────────────────
 
+// ── SPAWNER PRICE SEND ───────────────────────────────────
 new SlashCommandBuilder()
 .setName("spawnerpricesend")
 .setDescription("Post the current spawner prices in the channel")
@@ -367,9 +369,9 @@ await rest.put(Routes.applicationGuildCommands(clientId, guildId), { body: comma
 console.log(` Slash commands registered to guild ${guildId}`);
 } else {
 // Global commands take up to 1 hour to propagate
+
 await rest.put(Routes.applicationCommands(clientId), { body: commands });
 console.log(" Slash commands registered globally");
-
 }
 } catch (err) {
 console.error(" Failed to register slash commands:", err);
@@ -409,9 +411,9 @@ function buildDorkRow(currentPrize, maxPrize, dorkId, forceDisableDouble = false
 const doubled = currentPrize * 2;
 const canDouble = !forceDisableDouble && doubled <= maxPrize && currentPrize > 0;
 const keepBtn = new ButtonBuilder()
+
 .setCustomId(`dork_keep_${dorkId}`)
 .setLabel(" Keep")
-
 .setStyle(ButtonStyle.Success);
 const doubleLabel = forceDisableDouble
 ? " Double (N/A)"
@@ -433,7 +435,7 @@ try {
 return await handleButton(interaction);
 } catch (err) {
 console.error(" Error handling button interaction:", err);
-const reply = { embeds: [errorEmbed("Something went wrong with that button.")], ephemeral: true };
+const reply = { embeds: [errorEmbed("Something went wrong with that button.")], flags: MessageFlags.Ephemeral };
 if (interaction.replied || interaction.deferred) return interaction.followUp(reply);
 return interaction.reply(reply);
 }
@@ -450,13 +452,13 @@ return await handleTicketCloseModal(interaction, channelId);
 if (cid.startsWith("deny_reason_")) {
 const parts = cid.replace("deny_reason_", "").split("_");
 const appType = parts.pop(); // last segment is type
+
 const userId = parts.join("_"); // everything before is userId
 return await handleDenyReasonModal(interaction, userId, appType);
-
 }
 } catch (err) {
 console.error(" Error handling modal submission:", err);
-const reply = { embeds: [errorEmbed("Something went wrong with that form.")], ephemeral: true };
+const reply = { embeds: [errorEmbed("Something went wrong with that form.")], flags: MessageFlags.Ephemeral };
 if (interaction.replied || interaction.deferred) return interaction.followUp(reply);
 return interaction.reply(reply);
 }
@@ -473,13 +475,13 @@ const target = interaction.options.getUser("user");
 const reason = interaction.options.getString("reason");
 const member = await interaction.guild.members.fetch(target.id).catch(() => null);
 if (!member) {
-return interaction.reply({ embeds: [errorEmbed("That user is not in this server.")], ephemeral: true });
+return interaction.reply({ embeds: [errorEmbed("That user is not in this server.")], flags: MessageFlags.Ephemeral });
 }
 const embed = new EmbedBuilder()
 .setColor(0xf39c12)
 .setTitle(" Member Warned")
 .addFields(
-{ name: " User", value: `<@${target.id}> (${target.tag})`, inline: true },
+{ name: " User", value: `<@${target.id}> (${target.username})`, inline: true },
 { name: " Moderator", value: `<@${interaction.user.id}>`, inline: true },
 { name: " Reason", value: reason }
 )
@@ -490,23 +492,23 @@ return interaction.reply({ embeds: [embed] });
 // ==========================================================
 // MODERATION: /ban
 // ==========================================================
+
 if (commandName === "ban") {
 const target = interaction.options.getUser("user");
-
 const reason = interaction.options.getString("reason") ?? "No reason provided";
 const member = await interaction.guild.members.fetch(target.id).catch(() => null);
 if (!member) {
-return interaction.reply({ embeds: [errorEmbed("That user is not in this server.")], ephemeral: true });
+return interaction.reply({ embeds: [errorEmbed("That user is not in this server.")], flags: MessageFlags.Ephemeral });
 }
 if (!member.bannable) {
-return interaction.reply({ embeds: [errorEmbed("I cannot ban that user. They may have a higher role than me.")], ephemeral: true });
+return interaction.reply({ embeds: [errorEmbed("I cannot ban that user. They may have a higher role than me.")], flags: MessageFlags.Ephemeral });
 }
 await member.ban({ reason });
 const embed = new EmbedBuilder()
 .setColor(0xe74c3c)
 .setTitle(" Member Banned")
 .addFields(
-{ name: " User", value: `<@${target.id}> (${target.tag})`, inline: true },
+{ name: " User", value: `<@${target.id}> (${target.username})`, inline: true },
 { name: " Moderator", value: `<@${interaction.user.id}>`, inline: true },
 { name: " Reason", value: reason }
 )
@@ -524,19 +526,19 @@ let user;
 try {
 user = await client.users.fetch(userId);
 } catch {
-return interaction.reply({ embeds: [errorEmbed("Could not find a user with that ID.")], ephemeral: true });
+return interaction.reply({ embeds: [errorEmbed("Could not find a user with that ID.")], flags: MessageFlags.Ephemeral });
 }
 try {
 await interaction.guild.members.unban(userId, reason);
 } catch {
-return interaction.reply({ embeds: [errorEmbed("That user is not banned or I lack permission.")], ephemeral: true });
+return interaction.reply({ embeds: [errorEmbed("That user is not banned or I lack permission.")], flags: MessageFlags.Ephemeral });
 }
-const embed = new EmbedBuilder()
 
+const embed = new EmbedBuilder()
 .setColor(0x2ecc71)
 .setTitle(" Member Unbanned")
 .addFields(
-{ name: " User", value: `${user.tag} (${userId})`, inline: true },
+{ name: " User", value: `${user.username} (${userId})`, inline: true },
 { name: " Moderator", value: `<@${interaction.user.id}>`, inline: true },
 { name: " Reason", value: reason }
 )
@@ -553,27 +555,27 @@ const durStr = interaction.options.getString("duration");
 const reason = interaction.options.getString("reason") ?? "No reason provided";
 const durationMs = parseDuration(durStr);
 if (isNaN(durationMs)) {
-return interaction.reply({ embeds: [errorEmbed("Invalid duration. Use formats like `10m`, `1h`, `7d`.")], ephemeral: true });
+return interaction.reply({ embeds: [errorEmbed("Invalid duration. Use formats like `10m`, `1h`, `7d`.")], flags: MessageFlags.Ephemeral });
 }
 const maxTimeout = 28 * 24 * 60 * 60 * 1000; // 28 days in ms
 if (durationMs > maxTimeout) {
-return interaction.reply({ embeds: [errorEmbed("Maximum timeout duration is 28 days.")], ephemeral: true });
+return interaction.reply({ embeds: [errorEmbed("Maximum timeout duration is 28 days.")], flags: MessageFlags.Ephemeral });
 }
 const member = await interaction.guild.members.fetch(target.id).catch(() => null);
 if (!member) {
-return interaction.reply({ embeds: [errorEmbed("That user is not in this server.")], ephemeral: true });
+return interaction.reply({ embeds: [errorEmbed("That user is not in this server.")], flags: MessageFlags.Ephemeral });
 }
 if (!member.moderatable) {
-return interaction.reply({ embeds: [errorEmbed("I cannot timeout that user. They may have a higher role than me.")], ephemeral: true });
+return interaction.reply({ embeds: [errorEmbed("I cannot timeout that user. They may have a higher role than me.")], flags: MessageFlags.Ephemeral });
 }
 await member.timeout(durationMs, reason);
 const endsAt = Math.floor((Date.now() + durationMs) / 1000);
 const embed = new EmbedBuilder()
 .setColor(0xe67e22)
+
 .setTitle(" Member Timed Out")
 .addFields(
-
-{ name: " User", value: `<@${target.id}> (${target.tag})`, inline: true },
+{ name: " User", value: `<@${target.id}> (${target.username})`, inline: true },
 { name: " Moderator", value: `<@${interaction.user.id}>`, inline: true },
 { name: " Expires", value: `<t:${endsAt}:R>`, inline: true },
 { name: " Reason", value: reason }
@@ -590,17 +592,17 @@ const target = interaction.options.getUser("user");
 const reason = interaction.options.getString("reason") ?? "No reason provided";
 const member = await interaction.guild.members.fetch(target.id).catch(() => null);
 if (!member) {
-return interaction.reply({ embeds: [errorEmbed("That user is not in this server.")], ephemeral: true });
+return interaction.reply({ embeds: [errorEmbed("That user is not in this server.")], flags: MessageFlags.Ephemeral });
 }
 if (!member.isCommunicationDisabled()) {
-return interaction.reply({ embeds: [errorEmbed("That user is not currently timed out.")], ephemeral: true });
+return interaction.reply({ embeds: [errorEmbed("That user is not currently timed out.")], flags: MessageFlags.Ephemeral });
 }
 await member.timeout(null, reason);
 const embed = new EmbedBuilder()
 .setColor(0x2ecc71)
 .setTitle(" Timeout Removed")
 .addFields(
-{ name: " User", value: `<@${target.id}> (${target.tag})`, inline: true },
+{ name: " User", value: `<@${target.id}> (${target.username})`, inline: true },
 { name: " Moderator", value: `<@${interaction.user.id}>`, inline: true },
 { name: " Reason", value: reason }
 )
@@ -611,26 +613,26 @@ return interaction.reply({ embeds: [embed] });
 // ==========================================================
 // ROLE MANAGEMENT: /addrole
 // ==========================================================
+
 if (commandName === "addrole") {
 const target = interaction.options.getUser("user");
-
 const role = interaction.options.getRole("role");
 const member = await interaction.guild.members.fetch(target.id).catch(() => null);
 if (!member) {
-return interaction.reply({ embeds: [errorEmbed("That user is not in this server.")], ephemeral: true });
+return interaction.reply({ embeds: [errorEmbed("That user is not in this server.")], flags: MessageFlags.Ephemeral });
 }
 if (member.roles.cache.has(role.id)) {
-return interaction.reply({ embeds: [errorEmbed(`<@${target.id}> already has the <@&${role.id}> role.`)], ephemeral: true });
+return interaction.reply({ embeds: [errorEmbed(`<@${target.id}> already has the <@&${role.id}> role.`)], flags: MessageFlags.Ephemeral });
 }
 if (!role.editable) {
-return interaction.reply({ embeds: [errorEmbed("I cannot assign that role. It may be higher than my highest role.")], ephemeral: true });
+return interaction.reply({ embeds: [errorEmbed("I cannot assign that role. It may be higher than my highest role.")], flags: MessageFlags.Ephemeral });
 }
 await member.roles.add(role);
 const embed = new EmbedBuilder()
 .setColor(0x3498db)
 .setTitle(" Role Added")
 .addFields(
-{ name: " User", value: `<@${target.id}> (${target.tag})`, inline: true },
+{ name: " User", value: `<@${target.id}> (${target.username})`, inline: true },
 { name: " Role", value: `<@&${role.id}>`, inline: true },
 { name: " Moderator", value: `<@${interaction.user.id}>`, inline: true }
 )
@@ -645,21 +647,21 @@ const target = interaction.options.getUser("user");
 const role = interaction.options.getRole("role");
 const member = await interaction.guild.members.fetch(target.id).catch(() => null);
 if (!member) {
-return interaction.reply({ embeds: [errorEmbed("That user is not in this server.")], ephemeral: true });
+return interaction.reply({ embeds: [errorEmbed("That user is not in this server.")], flags: MessageFlags.Ephemeral });
 }
 if (!member.roles.cache.has(role.id)) {
-return interaction.reply({ embeds: [errorEmbed(`<@${target.id}> does not have the <@&${role.id}> role.`)], ephemeral: true });
+return interaction.reply({ embeds: [errorEmbed(`<@${target.id}> does not have the <@&${role.id}> role.`)], flags: MessageFlags.Ephemeral });
 }
 if (!role.editable) {
-return interaction.reply({ embeds: [errorEmbed("I cannot remove that role. It may be higher than my highest role.")], ephemeral: true });
+return interaction.reply({ embeds: [errorEmbed("I cannot remove that role. It may be higher than my highest role.")], flags: MessageFlags.Ephemeral });
 }
-await member.roles.remove(role);
 
+await member.roles.remove(role);
 const embed = new EmbedBuilder()
 .setColor(0xe74c3c)
 .setTitle(" Role Removed")
 .addFields(
-{ name: " User", value: `<@${target.id}> (${target.tag})`, inline: true },
+{ name: " User", value: `<@${target.id}> (${target.username})`, inline: true },
 { name: " Role", value: `<@&${role.id}>`, inline: true },
 { name: " Moderator", value: `<@${interaction.user.id}>`, inline: true }
 )
@@ -678,7 +680,7 @@ if (colorInput) {
 const hex = colorInput.replace("#", "");
 const parsed = parseInt(hex, 16);
 if (isNaN(parsed)) {
-return interaction.reply({ embeds: [errorEmbed("Invalid hex color. Example: `#ff0000`")], ephemeral: true });
+return interaction.reply({ embeds: [errorEmbed("Invalid hex color. Example: `#ff0000`")], flags: MessageFlags.Ephemeral });
 }
 color = parsed;
 }
@@ -686,21 +688,21 @@ const embed = new EmbedBuilder()
 .setColor(color)
 .setTitle(title)
 .setDescription(description)
-.setFooter({ text: `Posted by ${interaction.user.tag}` })
+.setFooter({ text: `Posted by ${interaction.user.username}` })
 .setTimestamp();
 // Confirm to the command user (ephemeral), then send the real embed
-await interaction.reply({ content: " Embed sent!", ephemeral: true });
+await interaction.reply({ content: " Embed sent!", flags: MessageFlags.Ephemeral });
 return interaction.channel.send({ embeds: [embed] });
 }
 // ==========================================================
+
 // SMOKER CALCULATOR: /smoker
 // ==========================================================
-
 if (commandName === "smoker") {
 const amountStr = interaction.options.getString("amount");
 const amount = parseNumber(amountStr);
 if (isNaN(amount) || amount <= 0) {
-return interaction.reply({ embeds: [errorEmbed("Invalid amount. Use a number like `50`, `5k`, `2.5m`.")], ephemeral: true });
+return interaction.reply({ embeds: [errorEmbed("Invalid amount. Use a number like `50`, `5k`, `2.5m`.")], flags: MessageFlags.Ephemeral });
 }
 const valuePerSmoker = 200_000;
 const total = amount * valuePerSmoker;
@@ -724,7 +726,7 @@ const amountStr = interaction.options.getString("amount");
 const type = interaction.options.getString("type"); // "buy" or "sell"
 const amount = parseNumber(amountStr);
 if (isNaN(amount) || amount <= 0) {
-return interaction.reply({ embeds: [errorEmbed("Invalid amount. Use a number like `10`, `5k`, `2m`.")], ephemeral: true });
+return interaction.reply({ embeds: [errorEmbed("Invalid amount. Use a number like `10`, `5k`, `2m`.")], flags: MessageFlags.Ephemeral });
 }
 const isBuying = type === "buy";
 const priceEach = isBuying ? spawnerConfig.sellPrice : spawnerConfig.buyPrice;
@@ -733,9 +735,9 @@ const actionText = isBuying ? "You pay the server" : "Server pays you";
 const color = isBuying ? 0xe74c3c : 0x2ecc71;
 const emoji = isBuying ? " " : " ";
 const embed = new EmbedBuilder()
+
 .setColor(color)
 .setTitle(`${emoji} Spawner ${isBuying ? "Purchase" : "Sale"} Calculator`)
-
 .addFields(
 { name: " Spawners", value: formatNumber(amount), inline: true },
 { name: " Price Each", value: formatNumber(priceEach), inline: true },
@@ -756,7 +758,7 @@ const type = interaction.options.getString("type"); // "buy" or "sell"
 const priceStr = interaction.options.getString("price");
 const price = parseNumber(priceStr);
 if (isNaN(price) || price <= 0) {
-return interaction.reply({ embeds: [errorEmbed("Invalid price. Use a number like `4.4m`, `5200000`, `5.2m`.")], ephemeral: true });
+return interaction.reply({ embeds: [errorEmbed("Invalid price. Use a number like `4.4m`, `5200000`, `5.2m`.")], flags: MessageFlags.Ephemeral });
 }
 if (type === "buy") {
 spawnerConfig.buyPrice = price;
@@ -775,8 +777,8 @@ const embed = new EmbedBuilder()
 .setFooter({
 text: `Current prices — Buy: ${formatNumber(spawnerConfig.buyPrice)} | Sell: ${formatNumber(spawnerConfig.sellPrice)}`
 })
-.setTimestamp();
 
+.setTimestamp();
 return interaction.reply({ embeds: [embed] });
 }
 // ==========================================================
@@ -804,7 +806,7 @@ inline: false,
 }
 )
 .setTimestamp();
-await interaction.reply({ content: " Spawner prices posted!", ephemeral: true });
+await interaction.reply({ content: " Spawner prices posted!", flags: MessageFlags.Ephemeral });
 return interaction.channel.send({ embeds: [embed] });
 }
 // ==========================================================
@@ -817,9 +819,9 @@ if (commandName === "stats") {
 const username = interaction.options.getString("username");
 await interaction.deferReply();
 const result = await donutAPI(`/v1/stats/${encodeURIComponent(username)}`);
+
 if (!result.ok) {
 return interaction.editReply({ embeds: [errorEmbed(result.message)] });
-
 }
 const s = result.data.result;
 const money = parseFloat(s.money) || 0;
@@ -858,9 +860,9 @@ const embed = new EmbedBuilder()
 .setColor(0x9b59b6)
 .setTitle(` Lookup — ${p.username ?? username}`)
 .setThumbnail(`https://mc-heads.net/avatar/${encodeURIComponent(username)}/64`)
+
 .addFields(
 { name: " Username", value: p.username ?? username, inline: true },
-
 { name: " Rank", value: p.rank ?? "None", inline: true },
 { name: " Location", value: p.location ?? "Unknown", inline: true }
 )
@@ -899,8 +901,8 @@ const timeLeft = formatTimeLeft(entry.time_left ?? 0);
 const enchants = formatEnchants(entry.item?.enchants);
 const enchantStr = enchants ? ` *(${enchants})*` : "";
 return `**${i + 1}.** ${name}${count}${enchantStr}\n└ ${price} | ${seller} | ${timeLeft}`;
-});
 
+});
 const embed = new EmbedBuilder()
 .setColor(0xf1c40f)
 .setTitle(` Auction House — "${item}"`)
@@ -939,9 +941,9 @@ const enchantStr = enchants ? ` *(${enchants})*` : "";
 return `**${i + 1}.** ${name}${count}${enchantStr}\n└ ${price} | ${seller} | ${soldAt}`;
 });
 const embed = new EmbedBuilder()
+
 .setColor(0xe67e22)
 .setTitle(` Recent Auction Sales — Page ${page}`)
-
 .setDescription(lines.join("\n\n"))
 .setFooter({ text: `Showing ${shown.length} of ${transactions.length} on this page • 100 per page` })
 .setTimestamp();
@@ -979,9 +981,9 @@ brokenblocks: { label: " Blocks Broken Leaderboard", unit: "", isNumber: false }
 placedblocks: { label: " Blocks Placed Leaderboard", unit: "", isNumber: false },
 };
 const meta = lbMeta[type] ?? { label: `${type} Leaderboard`, unit: "", isNumber: false };
+
 const lines = entries.map((entry, i) => {
 const rank = startRank + i;
-
 const medal = rank <= 3 ? medals[rank - 1] : `**${rank}.**`;
 const username = entry.username ?? "Unknown";
 let value = entry.value ?? "0";
@@ -1013,15 +1015,15 @@ if (commandName === "applicationpanelsend") return handleApplicationPanelSend(in
 if (commandName === "giveaway") return handleGiveaway(interaction);
 } catch (err) {
 console.error(` Error handling command "${commandName}":`, err);
-const reply = { embeds: [errorEmbed("Something went wrong. Please try again.")], ephemeral: true };
+const reply = { embeds: [errorEmbed("Something went wrong. Please try again.")], flags: MessageFlags.Ephemeral };
 if (interaction.replied || interaction.deferred) {
 return interaction.followUp(reply);
 }
 return interaction.reply(reply);
 }
+
 });
 // ============================================================
-
 // index.js — Part 3: Giveaway, Dork Game, Ready, Login
 // ============================================================
 // ============================================================
@@ -1039,14 +1041,14 @@ const durationMs = parseDuration(durStr);
 if (isNaN(durationMs) || durationMs <= 0) {
 return interaction.reply({
 embeds: [errorEmbed("Invalid duration. Use formats like `30m`, `1h`, `2d`.")],
-ephemeral: true,
+flags: MessageFlags.Ephemeral,
 });
 }
 const maxPrize = parseNumber(maxPrizeStr);
 if (isNaN(maxPrize) || maxPrize <= 0) {
 return interaction.reply({
 embeds: [errorEmbed("Invalid max prize cap. Use a number like `10m`, `500k`, `1b`.")],
-ephemeral: true,
+flags: MessageFlags.Ephemeral,
 });
 }
 const endsAt = Date.now() + durationMs;
@@ -1059,15 +1061,15 @@ hostId: interaction.user.id,
 channelId: interaction.channelId,
 entries: [],
 };
+
 // Build join button
 const joinBtn = new ButtonBuilder()
-
 .setCustomId("giveaway_join")
 .setLabel(" Enter Giveaway")
 .setStyle(ButtonStyle.Primary);
 const row = new ActionRowBuilder().addComponents(joinBtn);
 // Reply to the slash command ephemerally, send the real giveaway embed to channel
-await interaction.reply({ content: " Giveaway created!", ephemeral: true });
+await interaction.reply({ content: " Giveaway created!", flags: MessageFlags.Ephemeral });
 const msg = await interaction.channel.send({
 embeds: [buildGiveawayEmbed(giveawayData)],
 components: [row],
@@ -1084,10 +1086,10 @@ const messageId = interaction.options.getString("messageid").trim();
 if (!activeGiveaways.has(messageId)) {
 return interaction.reply({
 embeds: [errorEmbed("No active giveaway found with that message ID.")],
-ephemeral: true,
+flags: MessageFlags.Ephemeral,
 });
 }
-await interaction.reply({ content: " Ending giveaway...", ephemeral: true });
+await interaction.reply({ content: " Ending giveaway...", flags: MessageFlags.Ephemeral });
 await endGiveaway(messageId, interaction.channel);
 }
 }
@@ -1097,8 +1099,8 @@ await endGiveaway(messageId, interaction.channel);
 async function endGiveaway(messageId, channel) {
 const data = activeGiveaways.get(messageId);
 if (!data) return; // already ended or never existed
-// Remove from active map immediately to prevent double-ending
 
+// Remove from active map immediately to prevent double-ending
 activeGiveaways.delete(messageId);
 // Fetch the original giveaway message
 let giveawayMsg;
@@ -1138,8 +1140,8 @@ new EmbedBuilder()
 .setTimestamp(),
 ],
 });
-}
 
+}
 // Pick a random winner
 const winnerId = data.entries[Math.floor(Math.random() * data.entries.length)];
 // Start the dork game
@@ -1177,9 +1179,9 @@ const dorkEmbed = new EmbedBuilder()
 .setTimestamp();
 const row = buildDorkRow(isNumeric ? prize : 0, maxPrize, dorkId, !isNumeric);
 const dorkMsg = await channel.send({
+
 content: `<@${winnerId}>`,
 embeds: [dorkEmbed],
-
 components: [row],
 });
 dorkData.messageId = dorkMsg.id;
@@ -1198,13 +1200,13 @@ const data = activeGiveaways.get(messageId);
 if (!data) {
 return interaction.reply({
 embeds: [errorEmbed("This giveaway has already ended.")],
-ephemeral: true,
+flags: MessageFlags.Ephemeral,
 });
 }
 if (data.entries.includes(interaction.user.id)) {
 return interaction.reply({
 embeds: [errorEmbed("You have already entered this giveaway!")],
-ephemeral: true,
+flags: MessageFlags.Ephemeral,
 });
 }
 // Add entry
@@ -1216,12 +1218,12 @@ return interaction.reply({
 embeds: [
 new EmbedBuilder()
 .setColor(0x2ecc71)
+
 .setTitle(" Entered!")
 .setDescription(`You've entered the giveaway for **${data.prize}**! Good luck!`)
-
 .setTimestamp(),
 ],
-ephemeral: true,
+flags: MessageFlags.Ephemeral,
 });
 }
 // ── Dork Keep Button ──────────────────────────────────────
@@ -1232,14 +1234,14 @@ const data = activeDorks.get(messageId);
 if (!data) {
 return interaction.reply({
 embeds: [errorEmbed("This dork session has already ended.")],
-ephemeral: true,
+flags: MessageFlags.Ephemeral,
 });
 }
 // Only the winner can interact
 if (interaction.user.id !== data.winnerId) {
 return interaction.reply({
 embeds: [errorEmbed("Only the giveaway winner can make this choice.")],
-ephemeral: true,
+flags: MessageFlags.Ephemeral,
 });
 }
 // Remove from active dorks
@@ -1257,8 +1259,8 @@ const disabledDouble = new ButtonBuilder()
 .setDisabled(true);
 const disabledRow = new ActionRowBuilder().addComponents(disabledKeep, disabledDouble);
 await interaction.message.edit({ components: [disabledRow] });
-const displayPrize = typeof data.prize === "number"
 
+const displayPrize = typeof data.prize === "number"
 ? formatNumber(data.prize)
 : data.prize;
 // Send keep result
@@ -1298,9 +1300,9 @@ return handleTicketCreate(interaction, t);
 }
 // ── Ticket Close Button ───────────────────────────────────
 if (customId.startsWith("ticket_close_")) {
+
 const channelId = customId.replace("ticket_close_", "");
 return handleTicketClose(interaction, channelId);
-
 }
 // ── Dork Double Button ────────────────────────────────────
 if (customId.startsWith("dork_double_")) {
@@ -1310,14 +1312,14 @@ const data = activeDorks.get(messageId);
 if (!data) {
 return interaction.reply({
 embeds: [errorEmbed("This dork session has already ended.")],
-ephemeral: true,
+flags: MessageFlags.Ephemeral,
 });
 }
 // Only the winner can interact
 if (interaction.user.id !== data.winnerId) {
 return interaction.reply({
 embeds: [errorEmbed("Only the giveaway winner can make this choice.")],
-ephemeral: true,
+flags: MessageFlags.Ephemeral,
 });
 }
 // Calculate new prize
@@ -1334,16 +1336,16 @@ currentNumeric = data.prize;
 // is a safety fallback.
 return interaction.reply({
 embeds: [errorEmbed("This prize cannot be doubled as it is not a numeric value.")],
-ephemeral: true,
+flags: MessageFlags.Ephemeral,
 });
 }
 const newPrize = currentNumeric * 2;
 // Safety check — should never hit since button is disabled, but belt-and-suspenders
 if (newPrize > data.maxPrize) {
+
 return interaction.reply({
 embeds: [errorEmbed(`Doubling would exceed the max cap of **${formatNumber(data.maxPrize)}**. You can only keep.`)],
-
-ephemeral: true,
+flags: MessageFlags.Ephemeral,
 });
 }
 // Remove old dork session
@@ -1380,9 +1382,9 @@ await startDorkGame(interaction.channel, data.winnerId, newPrize, data.maxPrize)
 // index.js — API Part 1: DonutSMP API Helper + Command Routing
 // ============================================================
 // ── DonutSMP API helper ──────────────────────────────────────
+
 // All API calls go through this function.
 // Returns { ok: true, data } on success or { ok: false, message } on failure.
-
 async function donutAPI(path, options = {}) {
 const apiKey = process.env.DONUT_API_KEY;
 if (!apiKey) return { ok: false, message: "Missing `DONUT_API_KEY` environment variable on Railway." };
@@ -1422,9 +1424,9 @@ const s = Number(seconds);
 if (isNaN(s) || s <= 0) return "Expired";
 const d = Math.floor(s / 86400);
 const h = Math.floor((s % 86400) / 3600);
+
 const m = Math.floor((s % 3600) / 60);
 if (d > 0) return `${d}d ${h}h`;
-
 if (h > 0) return `${h}h ${m}m`;
 return `${m}m`;
 }
@@ -1438,9 +1440,6 @@ return entries.map(([name, lvl]) => `${name} ${lvl}`).join(", ");
 }
 // ============================================================
 // TICKET SYSTEM — Part 2 Functions
-// ============================================================
-// ============================================================
-// APPLICATION SYSTEM — Ticket Part 3 Functions
 // ============================================================
 // ============================================================
 // APPLICATION SYSTEM — Ticket Part 3
@@ -1466,16 +1465,14 @@ const row = new ActionRowBuilder().addComponents(
 new ButtonBuilder()
 .setCustomId("app_staff")
 .setLabel("Staff Application")
-.setEmoji(" ")
-
 .setStyle(ButtonStyle.Primary),
 new ButtonBuilder()
+
 .setCustomId("app_pm")
-.setLabel("PM Application")
-.setEmoji(" ")
+.setLabel(" PM Application")
 .setStyle(ButtonStyle.Success),
 );
-await interaction.reply({ content: " Application panel sent!", ephemeral: true });
+await interaction.reply({ content: " Application panel sent!", flags: MessageFlags.Ephemeral });
 return interaction.channel.send({ embeds: [embed], components: [row] });
 }
 // ── Start DM application flow ─────────────────────────────────
@@ -1488,7 +1485,7 @@ const label = type === "staff" ? "Staff" : "Partner Manager";
 if (activeApplications.has(user.id)) {
 return interaction.reply({
 embeds: [errorEmbed("You already have an active application in progress. Please check your DMs.")],
-ephemeral: true,
+flags: MessageFlags.Ephemeral,
 });
 }
 // Try to DM the user
@@ -1511,13 +1508,13 @@ new EmbedBuilder()
 ],
 });
 } catch (err) {
-
 return interaction.reply({
 embeds: [errorEmbed(
 "I couldn't send you a DM! Please enable Direct Messages from server members.\n\n" +
+
 "**To fix:** Right-click the server → Privacy Settings → Allow direct messages from server members."
 )],
-ephemeral: true,
+flags: MessageFlags.Ephemeral,
 });
 }
 // Store the session
@@ -1539,7 +1536,7 @@ new EmbedBuilder()
 .setDescription("Check your DMs! Answer each question to complete your application.")
 .setTimestamp(),
 ],
-ephemeral: true,
+flags: MessageFlags.Ephemeral,
 });
 }
 // ── messageCreate: handle DM application answers ─────────────
@@ -1554,9 +1551,9 @@ if (Date.now() - session.startedAt > 30 * 60 * 1000) {
 activeApplications.delete(message.author.id);
 return message.channel.send({
 embeds: [errorEmbed("Your application session has expired (30 minutes). Please start again.")],
-
 });
 }
+
 // Save this answer
 session.answers.push(message.content.trim());
 session.currentQ++;
@@ -1597,9 +1594,9 @@ new EmbedBuilder()
 });
 // Fetch the submission channel
 const channelId = session.type === "staff"
-
 ? process.env.STAFF_APP_CHANNEL_ID
 : process.env.PM_APP_CHANNEL_ID;
+
 if (!channelId) {
 console.error(` Missing ${session.type === "staff" ? "STAFF" : "PM"}_APP_CHANNEL_ID env variable`);
 return;
@@ -1638,10 +1635,10 @@ new ButtonBuilder()
 .setStyle(ButtonStyle.Success),
 new ButtonBuilder()
 .setCustomId(`deny_app_${message.author.id}_${session.type}`)
-
 .setLabel(" Deny")
 .setStyle(ButtonStyle.Danger),
 );
+
 await submitChannel.send({
 embeds: [submissionEmbed],
 components: [actionRow],
@@ -1655,7 +1652,7 @@ const member = await guild.members.fetch(userId).catch(() => null);
 if (!member) {
 return interaction.reply({
 embeds: [errorEmbed("Could not find that user in the server. They may have left.")],
-ephemeral: true,
+flags: MessageFlags.Ephemeral,
 });
 }
 // Build list of role IDs to assign based on app type
@@ -1680,10 +1677,10 @@ assignedRoles.push(`<@&${roleId}>`);
 } else {
 failedRoles.push(roleId);
 }
-
 } catch (err) {
 console.error(` Failed to assign role ${roleId}:`, err);
 failedRoles.push(roleId);
+
 }
 }
 // DM the applicant
@@ -1702,7 +1699,7 @@ new EmbedBuilder()
 ],
 });
 } catch {
-console.warn(` Could not DM ${member.user.tag} about acceptance`);
+console.warn(` Could not DM ${member.user.username} about acceptance`);
 }
 // Disable buttons on the submission message
 const disabledRow = new ActionRowBuilder().addComponents(
@@ -1724,9 +1721,9 @@ const roleText = assignedRoles.length
 const failText = failedRoles.length
 ? `\n Could not assign roles: ${failedRoles.join(", ")} — check role IDs on Railway.`
 : "";
-
 return interaction.reply({
 embeds: [
+
 new EmbedBuilder()
 .setColor(0x2ecc71)
 .setTitle(" Application Accepted")
@@ -1757,7 +1754,6 @@ return interaction.showModal(modal);
 // ── Handler: process deny reason modal ───────────────────────
 async function handleDenyReasonModal(interaction, userId, appType) {
 const reason = interaction.fields.getTextInputValue("deny_reason");
-const guild = interaction.guild;
 // Try to DM the applicant
 try {
 const user = await client.users.fetch(userId);
@@ -1766,11 +1762,11 @@ embeds: [
 new EmbedBuilder()
 .setColor(0xe74c3c)
 .setTitle(" Application Denied")
-
 .setDescription(
 `Your **${appType === "staff" ? "Staff" : "Partner Manager"}** application ` +
 `in **FlamingGMR's server** has been denied.\n\n` +
 `**Reason:** ${reason}\n\n` +
+
 `You may re-apply after **14 days**.`
 )
 .setTimestamp(),
@@ -1809,10 +1805,10 @@ new EmbedBuilder()
 
 // ============================================================
 // TICKET SYSTEM — Part 2
-
 // ============================================================
 // ── Helper: find or create a category by name ────────────────
 async function findOrCreateCategory(guild, categoryName) {
+
 // Look for existing category with exact name match
 const existing = guild.channels.cache.find(
 c => c.type === ChannelType.GuildCategory && c.name === categoryName
@@ -1843,7 +1839,7 @@ return new EmbedBuilder()
 (descriptions[type] ?? "A staff member will be with you shortly.") +
 `\n\nTo close this ticket, click the ** Close Ticket** button below.`
 )
-.setFooter({ text: `Ticket type: ${type} • Created by ${user.tag}` })
+.setFooter({ text: `Ticket type: ${type} • Created by ${user.username}` })
 .setTimestamp();
 }
 // ── Handler: /ticketpanelsend ────────────────────────────────
@@ -1852,27 +1848,27 @@ const embed = new EmbedBuilder()
 .setColor(0x5865f2)
 .setTitle(" FlamingGMR Support")
 .setDescription(
-
 "Welcome to **FlamingGMR's server**! What can we help you with?\n\n" +
 "Click a button below to open a ticket in the relevant category."
 )
 .setFooter({ text: "Only open a ticket if you genuinely need help." })
+
 .setTimestamp();
 // Row 1: Support, Giveaway, Spawner, Partnership
 const row1 = new ActionRowBuilder().addComponents(
-new ButtonBuilder().setCustomId("ticket_support") .setLabel("Support") .setEmoji(" ").setStyle(ButtonStyle.Primary),
-new ButtonBuilder().setCustomId("ticket_giveaway") .setLabel("Giveaway") .setEmoji(" ").setStyle(ButtonStyle.Success),
-new ButtonBuilder().setCustomId("ticket_spawner") .setLabel("Spawner Buy/Sell").setEmoji(" ").setStyle(ButtonStyle.Secondary),
-new ButtonBuilder().setCustomId("ticket_partnership").setLabel("Partnership") .setEmoji(" ").setStyle(ButtonStyle.Primary),
+new ButtonBuilder().setCustomId("ticket_support") .setLabel("Support") .setStyle(ButtonStyle.Primary),
+new ButtonBuilder().setCustomId("ticket_giveaway") .setLabel(" Giveaway") .setStyle(ButtonStyle.Success),
+new ButtonBuilder().setCustomId("ticket_spawner") .setLabel("Spawner Buy/Sell").setStyle(ButtonStyle.Secondary),
+new ButtonBuilder().setCustomId("ticket_partnership").setLabel(" Partnership") .setStyle(ButtonStyle.Primary),
 );
 // Row 2: Member Report, Staff Report, Building, Mystery Box
 const row2 = new ActionRowBuilder().addComponents(
-new ButtonBuilder().setCustomId("ticket_report_member").setLabel("Member Report").setEmoji(" ").setStyle(ButtonStyle.Danger),
-new ButtonBuilder().setCustomId("ticket_report_staff") .setLabel("Staff Report") .setEmoji(" ").setStyle(ButtonStyle.Danger),
-new ButtonBuilder().setCustomId("ticket_building") .setLabel("Building") .setEmoji(" ").setStyle(ButtonStyle.Secondary),
-new ButtonBuilder().setCustomId("ticket_mysterybox") .setLabel("Mystery Box") .setEmoji(" ").setStyle(ButtonStyle.Success),
+new ButtonBuilder().setCustomId("ticket_report_member").setLabel(" Member Report").setStyle(ButtonStyle.Danger),
+new ButtonBuilder().setCustomId("ticket_report_staff") .setLabel("Staff Report") .setStyle(ButtonStyle.Danger),
+new ButtonBuilder().setCustomId("ticket_building") .setLabel("Building") .setStyle(ButtonStyle.Secondary),
+new ButtonBuilder().setCustomId("ticket_mysterybox") .setLabel(" Mystery Box") .setStyle(ButtonStyle.Success),
 );
-await interaction.reply({ content: " Ticket panel sent!", ephemeral: true });
+await interaction.reply({ content: " Ticket panel sent!", flags: MessageFlags.Ephemeral });
 return interaction.channel.send({ embeds: [embed], components: [row1, row2] });
 }
 // ── Handler: create ticket channel ───────────────────────────
@@ -1892,18 +1888,18 @@ mysterybox: { category: TICKET_CATEGORIES.mysterybox, prefix: "mysterybox" },
 };
 const config = typeMap[type];
 if (!config) {
-return interaction.reply({ embeds: [errorEmbed("Unknown ticket type.")], ephemeral: true });
+return interaction.reply({ embeds: [errorEmbed("Unknown ticket type.")], flags: MessageFlags.Ephemeral });
 }
-
 // Check if user already has an open ticket of this type
 const existingChannel = guild.channels.cache.find(
 c => c.name === `${config.prefix}-${user.username.toLowerCase()}` &&
+
 c.type === ChannelType.GuildText
 );
 if (existingChannel) {
 return interaction.reply({
 embeds: [errorEmbed(`You already have an open ticket: <#${existingChannel.id}>`)],
-ephemeral: true,
+flags: MessageFlags.Ephemeral,
 });
 }
 // Find or create the category
@@ -1914,7 +1910,7 @@ category = await findOrCreateCategory(guild, config.category);
 console.error(" Failed to find/create category:", err);
 return interaction.reply({
 embeds: [errorEmbed("Could not find or create the ticket category. Make sure the bot has Manage Channels permission.")],
-ephemeral: true,
+flags: MessageFlags.Ephemeral,
 });
 }
 // Get ticket staff role for permissions
@@ -1937,11 +1933,11 @@ PermissionsBitField.Flags.AttachFiles,
 ],
 },
 {
-
 // The bot itself can always see and manage
 id: guild.members.me.id,
 allow: [
 PermissionsBitField.Flags.ViewChannel,
+
 PermissionsBitField.Flags.SendMessages,
 PermissionsBitField.Flags.ManageChannels,
 PermissionsBitField.Flags.ReadMessageHistory,
@@ -1973,7 +1969,7 @@ permissionOverwrites,
 console.error(" Failed to create ticket channel:", err);
 return interaction.reply({
 embeds: [errorEmbed("Could not create the ticket channel. Make sure the bot has Manage Channels permission.")],
-ephemeral: true,
+flags: MessageFlags.Ephemeral,
 });
 }
 // Build close button
@@ -1982,10 +1978,10 @@ new ButtonBuilder()
 .setCustomId(`ticket_close_${ticketChannel.id}`)
 .setLabel(" Close Ticket")
 .setStyle(ButtonStyle.Danger)
-
 );
 // Send welcome embed inside the ticket channel
 await ticketChannel.send({
+
 content: `<@${user.id}>${ticketStaffRoleId ? ` | <@&${ticketStaffRoleId}>` : ""}`,
 embeds: [buildTicketWelcomeEmbed(type, user)],
 components: [closeRow],
@@ -1999,7 +1995,7 @@ new EmbedBuilder()
 .setDescription(`Your ticket has been created: <#${ticketChannel.id}>`)
 .setTimestamp()
 ],
-ephemeral: true,
+flags: MessageFlags.Ephemeral,
 });
 }
 // ── Handler: close ticket modal submission ───────────────────
@@ -2023,11 +2019,11 @@ async function handleTicketCloseModal(interaction, channelId) {
 const reason = interaction.fields.getTextInputValue("close_reason");
 const channel = interaction.guild.channels.cache.get(channelId);
 if (!channel) {
-
 return interaction.reply({
 embeds: [errorEmbed("Could not find the ticket channel to close.")],
-ephemeral: true,
+flags: MessageFlags.Ephemeral,
 });
+
 }
 // Send closing message in the channel before deleting
 await channel.send({
@@ -2042,11 +2038,11 @@ new EmbedBuilder()
 .setTimestamp()
 ],
 });
-await interaction.reply({ content: " Closing ticket...", ephemeral: true });
+await interaction.reply({ content: " Closing ticket...", flags: MessageFlags.Ephemeral });
 // Wait 3 seconds so staff can see the closing message, then delete
 setTimeout(async () => {
 try {
-await channel.delete(`Ticket closed by ${interaction.user.tag}: ${reason}`);
+await channel.delete(`Ticket closed by ${interaction.user.username}: ${reason}`);
 } catch (err) {
 console.error(" Failed to delete ticket channel:", err);
 }
@@ -2057,7 +2053,7 @@ console.error(" Failed to delete ticket channel:", err);
 // CLIENT READY EVENT
 // ============================================================
 client.once("ready", async () => {
-console.log(` Bot logged in as ${client.user.tag}`);
+console.log(` Bot logged in as ${client.user.username}`);
 console.log(` Serving ${client.guilds.cache.size} guild(s)`);
 try {
 await registerCommands();
@@ -2065,10 +2061,10 @@ await registerCommands();
 console.error(" Command registration failed on ready:", err);
 // Do NOT process.exit here — bot can still function with existing commands
 }
-
 });
 // ============================================================
 // UNHANDLED ERRORS — prevent Railway crash on promise rejection
+
 // ============================================================
 process.on("unhandledRejection", (err) => {
 console.error(" Unhandled promise rejection:", err);
