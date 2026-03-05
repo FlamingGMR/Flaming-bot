@@ -8,7 +8,12 @@ EmbedBuilder,
 ButtonBuilder,
 ButtonStyle,
 ActionRowBuilder,
+ModalBuilder,
+TextInputBuilder,
+TextInputStyle,
+ChannelType,
 PermissionFlagsBits,
+PermissionsBitField,
 REST,
 Routes,
 SlashCommandBuilder,
@@ -20,7 +25,10 @@ GatewayIntentBits.Guilds,
 GatewayIntentBits.GuildMembers,
 GatewayIntentBits.GuildMessages,
 GatewayIntentBits.MessageContent,
+GatewayIntentBits.DirectMessages,
+GatewayIntentBits.DirectMessageReactions,
 ],
+partials: ["CHANNEL", "MESSAGE"], // Required for DM handling in discord.js v14
 });
 // ── In-memory stores ─────────────────────────────────────────
 // Spawner prices (admins can update at runtime)
@@ -30,13 +38,41 @@ sellPrice: 5200000, // server sells TO players
 };
 // Active giveaways { messageId -> giveawayData }
 const activeGiveaways = new Map();
+
 // Active dork sessions { messageId -> dorkData }
 const activeDorks = new Map();
+// Active application sessions { userId -> sessionData }
+const activeApplications = new Map();
+// ── Ticket category names (must match exactly in your server) ─
+const TICKET_CATEGORIES = {
+support: "Support Tickets",
+giveaway: "Giveaway Tickets",
+partnership: "Partnership Ticket",
+spawner: "Spawner Staff Ticket",
+report: "Member/Staff Report",
+building: "Building Ticket",
+mysterybox: "Mystery Box",
+};
+// ── Application config ────────────────────────────────────────
+const STAFF_APP_QUESTIONS = [
+"How old are you?",
+"What are your stats on DonutSMP?",
+"What is your IGN?",
+"How many giveaways can you make a week?",
+"What would you do if someone was spamming racial slurs or inappropriate messages in chat?",
+"Do you have any prior experience? If yes, name the servers and your role.",
+];
+const PM_APP_QUESTIONS = [
+"What is your IGN?",
+"What are your stats on DonutSMP?",
+"How many partners can you make in a week?",
+"Do you understand that breaking partner requirements can lead to a strike or demotion?",
+"Do you have any prior experience? If yes, name the servers and your role.",
+];
 // ── Helper: parse number shortcuts (k / m / b) ───────────────
 function parseNumber(input) {
 if (input === null || input === undefined) return NaN;
 const str = String(input).trim().toLowerCase().replace(/,/g, "");
-
 const multipliers = { k: 1_000, m: 1_000_000, b: 1_000_000_000 };
 const match = str.match(/^(\d+(\.\d+)?)([kmb]?)$/);
 if (!match) return NaN;
@@ -44,6 +80,7 @@ const num = parseFloat(match[1]);
 const suffix = match[3];
 return suffix ? num * multipliers[suffix] : num;
 }
+
 // ── Helper: format large numbers back to readable string ──────
 function formatNumber(num) {
 if (num >= 1_000_000_000) return (num / 1_000_000_000).toFixed(2).replace(/\.00$/, "") + "b";
@@ -77,13 +114,13 @@ new SlashCommandBuilder()
 .setDescription("Warn a member")
 .addUserOption(o => o.setName("user").setDescription("Member to warn").setRequired(true))
 .addStringOption(o => o.setName("reason").setDescription("Reason for warning").setRequired(true))
-
 .setDefaultMemberPermissions(PermissionFlagsBits.ModerateMembers),
 new SlashCommandBuilder()
 .setName("ban")
 .setDescription("Ban a member from the server")
 .addUserOption(o => o.setName("user").setDescription("Member to ban").setRequired(true))
 .addStringOption(o => o.setName("reason").setDescription("Reason for ban").setRequired(false))
+
 .setDefaultMemberPermissions(PermissionFlagsBits.BanMembers),
 new SlashCommandBuilder()
 .setName("unban")
@@ -118,12 +155,12 @@ new SlashCommandBuilder()
 new SlashCommandBuilder()
 .setName("removerole")
 .setDescription("Remove a role from a member")
-
 .addUserOption(o => o.setName("user").setDescription("Target member").setRequired(true))
 .addRoleOption(o => o.setName("role").setDescription("Role to remove").setRequired(true))
 .setDefaultMemberPermissions(PermissionFlagsBits.ManageRoles),
 // ── EMBED BUILDER ─────────────────────────────────────────
 new SlashCommandBuilder()
+
 .setName("embed")
 .setDescription("Send a custom embed message")
 .addStringOption(o => o.setName("title").setDescription("Embed title").setRequired(true))
@@ -160,12 +197,12 @@ o.setName("type")
 { name: "Buying (you buy from server)", value: "buy" },
 { name: "Selling (you sell to server)", value: "sell" }
 )
-
 ),
 // ── SPAWNER PRICE CONFIG (Admin) ──────────────────────────
 new SlashCommandBuilder()
 .setName("setspawnerprice")
 .setDescription("Set the spawner buy or sell price (Admin only)")
+
 .addStringOption(o =>
 o.setName("type")
 .setDescription("Which price to update?")
@@ -204,7 +241,6 @@ o.setName("maxprize")
 o.setName("description")
 .setDescription("Extra description shown under the prize")
 .setRequired(false)
-
 )
 )
 .addSubcommand(sub =>
@@ -212,6 +248,7 @@ sub
 .setName("end")
 .setDescription("Force-end a giveaway early")
 .addStringOption(o =>
+
 o.setName("messageid")
 .setDescription("Message ID of the giveaway to end")
 .setRequired(true)
@@ -246,7 +283,6 @@ o.setName("item")
 .setRequired(true)
 )
 .addStringOption(o =>
-
 o.setName("sort")
 .setDescription("Sort order")
 .setRequired(false)
@@ -254,6 +290,7 @@ o.setName("sort")
 { name: "Lowest Price", value: "lowest_price" },
 { name: "Highest Price", value: "highest_price" },
 { name: "Recently Listed", value: "recently_listed" },
+
 { name: "Last Listed", value: "last_listed" }
 )
 ),
@@ -290,17 +327,27 @@ o.setName("type")
 )
 )
 .addIntegerOption(o =>
-
 o.setName("page")
 .setDescription("Page number (default: 1)")
 .setRequired(false)
 .setMinValue(1)
 ),
 // ── SPAWNER PRICE SEND ───────────────────────────────────
+
 new SlashCommandBuilder()
 .setName("spawnerpricesend")
 .setDescription("Post the current spawner prices in the channel")
 .setDefaultMemberPermissions(PermissionFlagsBits.ManageMessages),
+// ── TICKET PANEL ─────────────────────────────────────────
+new SlashCommandBuilder()
+.setName("ticketpanelsend")
+.setDescription("Post the ticket panel in this channel")
+.setDefaultMemberPermissions(PermissionFlagsBits.ManageChannels),
+// ── APPLICATION PANEL ────────────────────────────────────
+new SlashCommandBuilder()
+.setName("applicationpanelsend")
+.setDescription("Post the staff application panel in this channel")
+.setDefaultMemberPermissions(PermissionFlagsBits.ManageChannels),
 ].map(cmd => cmd.toJSON());
 // ============================================================
 // REGISTER SLASH COMMANDS VIA REST
@@ -322,13 +369,13 @@ console.log(` Slash commands registered to guild ${guildId}`);
 // Global commands take up to 1 hour to propagate
 await rest.put(Routes.applicationCommands(clientId), { body: commands });
 console.log(" Slash commands registered globally");
+
 }
 } catch (err) {
 console.error(" Failed to register slash commands:", err);
 throw err;
 }
 }
-
 // ============================================================
 // index.js — Part 2: Command Handlers
 // ============================================================
@@ -364,12 +411,12 @@ const canDouble = !forceDisableDouble && doubled <= maxPrize && currentPrize > 0
 const keepBtn = new ButtonBuilder()
 .setCustomId(`dork_keep_${dorkId}`)
 .setLabel(" Keep")
+
 .setStyle(ButtonStyle.Success);
 const doubleLabel = forceDisableDouble
 ? " Double (N/A)"
 : ` Double (→ ${formatNumber(doubled)})`;
 const doubleBtn = new ButtonBuilder()
-
 .setCustomId(`dork_double_${dorkId}`)
 .setLabel(doubleLabel)
 .setStyle(ButtonStyle.Danger)
@@ -391,6 +438,30 @@ if (interaction.replied || interaction.deferred) return interaction.followUp(rep
 return interaction.reply(reply);
 }
 }
+// ── Modal submissions (ticket close reason, future modals) ──
+if (interaction.isModalSubmit()) {
+try {
+const cid = interaction.customId;
+if (cid.startsWith("ticket_close_reason_")) {
+const channelId = cid.replace("ticket_close_reason_", "");
+return await handleTicketCloseModal(interaction, channelId);
+}
+// Deny reason modal for application rejection
+if (cid.startsWith("deny_reason_")) {
+const parts = cid.replace("deny_reason_", "").split("_");
+const appType = parts.pop(); // last segment is type
+const userId = parts.join("_"); // everything before is userId
+return await handleDenyReasonModal(interaction, userId, appType);
+
+}
+} catch (err) {
+console.error(" Error handling modal submission:", err);
+const reply = { embeds: [errorEmbed("Something went wrong with that form.")], ephemeral: true };
+if (interaction.replied || interaction.deferred) return interaction.followUp(reply);
+return interaction.reply(reply);
+}
+return;
+}
 if (!interaction.isChatInputCommand()) return;
 const { commandName } = interaction;
 try {
@@ -407,7 +478,6 @@ return interaction.reply({ embeds: [errorEmbed("That user is not in this server.
 const embed = new EmbedBuilder()
 .setColor(0xf39c12)
 .setTitle(" Member Warned")
-
 .addFields(
 { name: " User", value: `<@${target.id}> (${target.tag})`, inline: true },
 { name: " Moderator", value: `<@${interaction.user.id}>`, inline: true },
@@ -422,6 +492,7 @@ return interaction.reply({ embeds: [embed] });
 // ==========================================================
 if (commandName === "ban") {
 const target = interaction.options.getUser("user");
+
 const reason = interaction.options.getString("reason") ?? "No reason provided";
 const member = await interaction.guild.members.fetch(target.id).catch(() => null);
 if (!member) {
@@ -448,7 +519,6 @@ return interaction.reply({ embeds: [embed] });
 // ==========================================================
 if (commandName === "unban") {
 const userId = interaction.options.getString("userid").trim();
-
 const reason = interaction.options.getString("reason") ?? "No reason provided";
 let user;
 try {
@@ -462,6 +532,7 @@ await interaction.guild.members.unban(userId, reason);
 return interaction.reply({ embeds: [errorEmbed("That user is not banned or I lack permission.")], ephemeral: true });
 }
 const embed = new EmbedBuilder()
+
 .setColor(0x2ecc71)
 .setTitle(" Member Unbanned")
 .addFields(
@@ -488,7 +559,6 @@ const maxTimeout = 28 * 24 * 60 * 60 * 1000; // 28 days in ms
 if (durationMs > maxTimeout) {
 return interaction.reply({ embeds: [errorEmbed("Maximum timeout duration is 28 days.")], ephemeral: true });
 }
-
 const member = await interaction.guild.members.fetch(target.id).catch(() => null);
 if (!member) {
 return interaction.reply({ embeds: [errorEmbed("That user is not in this server.")], ephemeral: true });
@@ -502,6 +572,7 @@ const embed = new EmbedBuilder()
 .setColor(0xe67e22)
 .setTitle(" Member Timed Out")
 .addFields(
+
 { name: " User", value: `<@${target.id}> (${target.tag})`, inline: true },
 { name: " Moderator", value: `<@${interaction.user.id}>`, inline: true },
 { name: " Expires", value: `<t:${endsAt}:R>`, inline: true },
@@ -528,7 +599,6 @@ await member.timeout(null, reason);
 const embed = new EmbedBuilder()
 .setColor(0x2ecc71)
 .setTitle(" Timeout Removed")
-
 .addFields(
 { name: " User", value: `<@${target.id}> (${target.tag})`, inline: true },
 { name: " Moderator", value: `<@${interaction.user.id}>`, inline: true },
@@ -543,6 +613,7 @@ return interaction.reply({ embeds: [embed] });
 // ==========================================================
 if (commandName === "addrole") {
 const target = interaction.options.getUser("user");
+
 const role = interaction.options.getRole("role");
 const member = await interaction.guild.members.fetch(target.id).catch(() => null);
 if (!member) {
@@ -569,7 +640,6 @@ return interaction.reply({ embeds: [embed] });
 // ==========================================================
 // ROLE MANAGEMENT: /removerole
 // ==========================================================
-
 if (commandName === "removerole") {
 const target = interaction.options.getUser("user");
 const role = interaction.options.getRole("role");
@@ -584,6 +654,7 @@ if (!role.editable) {
 return interaction.reply({ embeds: [errorEmbed("I cannot remove that role. It may be higher than my highest role.")], ephemeral: true });
 }
 await member.roles.remove(role);
+
 const embed = new EmbedBuilder()
 .setColor(0xe74c3c)
 .setTitle(" Role Removed")
@@ -611,7 +682,6 @@ return interaction.reply({ embeds: [errorEmbed("Invalid hex color. Example: `#ff
 }
 color = parsed;
 }
-
 const embed = new EmbedBuilder()
 .setColor(color)
 .setTitle(title)
@@ -625,6 +695,7 @@ return interaction.channel.send({ embeds: [embed] });
 // ==========================================================
 // SMOKER CALCULATOR: /smoker
 // ==========================================================
+
 if (commandName === "smoker") {
 const amountStr = interaction.options.getString("amount");
 const amount = parseNumber(amountStr);
@@ -651,7 +722,6 @@ return interaction.reply({ embeds: [embed] });
 if (commandName === "spawner") {
 const amountStr = interaction.options.getString("amount");
 const type = interaction.options.getString("type"); // "buy" or "sell"
-
 const amount = parseNumber(amountStr);
 if (isNaN(amount) || amount <= 0) {
 return interaction.reply({ embeds: [errorEmbed("Invalid amount. Use a number like `10`, `5k`, `2m`.")], ephemeral: true });
@@ -665,6 +735,7 @@ const emoji = isBuying ? " " : " ";
 const embed = new EmbedBuilder()
 .setColor(color)
 .setTitle(`${emoji} Spawner ${isBuying ? "Purchase" : "Sale"} Calculator`)
+
 .addFields(
 { name: " Spawners", value: formatNumber(amount), inline: true },
 { name: " Price Each", value: formatNumber(priceEach), inline: true },
@@ -692,7 +763,6 @@ spawnerConfig.buyPrice = price;
 } else {
 spawnerConfig.sellPrice = price;
 }
-
 const label = type === "buy" ? "Buy Price (server pays players)" : "Sell Price (players pay server)";
 const embed = new EmbedBuilder()
 .setColor(0x2ecc71)
@@ -706,6 +776,7 @@ const embed = new EmbedBuilder()
 text: `Current prices — Buy: ${formatNumber(spawnerConfig.buyPrice)} | Sell: ${formatNumber(spawnerConfig.sellPrice)}`
 })
 .setTimestamp();
+
 return interaction.reply({ embeds: [embed] });
 }
 // ==========================================================
@@ -735,7 +806,6 @@ inline: false,
 .setTimestamp();
 await interaction.reply({ content: " Spawner prices posted!", ephemeral: true });
 return interaction.channel.send({ embeds: [embed] });
-
 }
 // ==========================================================
 // API Part 2: DonutSMP Command Handlers
@@ -749,6 +819,7 @@ await interaction.deferReply();
 const result = await donutAPI(`/v1/stats/${encodeURIComponent(username)}`);
 if (!result.ok) {
 return interaction.editReply({ embeds: [errorEmbed(result.message)] });
+
 }
 const s = result.data.result;
 const money = parseFloat(s.money) || 0;
@@ -776,7 +847,6 @@ return interaction.editReply({ embeds: [embed] });
 // DONUT SMP: /lookup
 // ==========================================================
 if (commandName === "lookup") {
-
 const username = interaction.options.getString("username");
 await interaction.deferReply();
 const result = await donutAPI(`/v1/lookup/${encodeURIComponent(username)}`);
@@ -790,6 +860,7 @@ const embed = new EmbedBuilder()
 .setThumbnail(`https://mc-heads.net/avatar/${encodeURIComponent(username)}/64`)
 .addFields(
 { name: " Username", value: p.username ?? username, inline: true },
+
 { name: " Rank", value: p.rank ?? "None", inline: true },
 { name: " Location", value: p.location ?? "Unknown", inline: true }
 )
@@ -816,7 +887,6 @@ if (!listings || listings.length === 0) {
 return interaction.editReply({
 embeds: [errorEmbed(`No auction listings found for **${item}**.`)],
 });
-
 }
 // Show top 10 results max to avoid embed overflow
 const shown = listings.slice(0, 10);
@@ -830,6 +900,7 @@ const enchants = formatEnchants(entry.item?.enchants);
 const enchantStr = enchants ? ` *(${enchants})*` : "";
 return `**${i + 1}.** ${name}${count}${enchantStr}\n└ ${price} | ${seller} | ${timeLeft}`;
 });
+
 const embed = new EmbedBuilder()
 .setColor(0xf1c40f)
 .setTitle(` Auction House — "${item}"`)
@@ -855,7 +926,6 @@ embeds: [errorEmbed("No recent auction transactions found.")],
 });
 }
 const shown = transactions.slice(0, 10);
-
 const lines = shown.map((entry, i) => {
 const name = entry.item?.display_name ?? entry.item?.id ?? "Unknown Item";
 const count = entry.item?.count > 1 ? ` x${entry.item.count}` : "";
@@ -871,6 +941,7 @@ return `**${i + 1}.** ${name}${count}${enchantStr}\n└ ${price} | ${seller} | $
 const embed = new EmbedBuilder()
 .setColor(0xe67e22)
 .setTitle(` Recent Auction Sales — Page ${page}`)
+
 .setDescription(lines.join("\n\n"))
 .setFooter({ text: `Showing ${shown.length} of ${transactions.length} on this page • 100 per page` })
 .setTimestamp();
@@ -896,7 +967,6 @@ embeds: [errorEmbed("No leaderboard data found for that page.")],
 const medals = [" ", " ", " "];
 const startRank = (page - 1) * entries.length + 1;
 const lbMeta = {
-
 money: { label: " Money Leaderboard", unit: "$", isNumber: true },
 kills: { label: " Kills Leaderboard", unit: "", isNumber: false },
 deaths: { label: " Deaths Leaderboard", unit: "", isNumber: false },
@@ -911,6 +981,7 @@ placedblocks: { label: " Blocks Placed Leaderboard", unit: "", isNumber: false }
 const meta = lbMeta[type] ?? { label: `${type} Leaderboard`, unit: "", isNumber: false };
 const lines = entries.map((entry, i) => {
 const rank = startRank + i;
+
 const medal = rank <= 3 ? medals[rank - 1] : `**${rank}.**`;
 const username = entry.username ?? "Unknown";
 let value = entry.value ?? "0";
@@ -929,6 +1000,14 @@ return interaction.editReply({ embeds: [embed] });
 }
 
 // ==========================================================
+// TICKET PANEL: /ticketpanelsend
+// ==========================================================
+if (commandName === "ticketpanelsend") return handleTicketPanelSend(interaction);
+// ==========================================================
+// APPLICATION PANEL: /applicationpanelsend — handled in Part 3
+// ==========================================================
+if (commandName === "applicationpanelsend") return handleApplicationPanelSend(interaction);
+// ==========================================================
 // GIVEAWAY: handled in Part 3
 // ==========================================================
 if (commandName === "giveaway") return handleGiveaway(interaction);
@@ -936,13 +1015,13 @@ if (commandName === "giveaway") return handleGiveaway(interaction);
 console.error(` Error handling command "${commandName}":`, err);
 const reply = { embeds: [errorEmbed("Something went wrong. Please try again.")], ephemeral: true };
 if (interaction.replied || interaction.deferred) {
-
 return interaction.followUp(reply);
 }
 return interaction.reply(reply);
 }
 });
 // ============================================================
+
 // index.js — Part 3: Giveaway, Dork Game, Ready, Login
 // ============================================================
 // ============================================================
@@ -977,12 +1056,12 @@ description,
 maxPrize,
 endsAt,
 hostId: interaction.user.id,
-
 channelId: interaction.channelId,
 entries: [],
 };
 // Build join button
 const joinBtn = new ButtonBuilder()
+
 .setCustomId("giveaway_join")
 .setLabel(" Enter Giveaway")
 .setStyle(ButtonStyle.Primary);
@@ -1015,11 +1094,11 @@ await endGiveaway(messageId, interaction.channel);
 // ============================================================
 // END GIVEAWAY LOGIC (used by both auto-timer and /giveaway end)
 // ============================================================
-
 async function endGiveaway(messageId, channel) {
 const data = activeGiveaways.get(messageId);
 if (!data) return; // already ended or never existed
 // Remove from active map immediately to prevent double-ending
+
 activeGiveaways.delete(messageId);
 // Fetch the original giveaway message
 let giveawayMsg;
@@ -1055,12 +1134,12 @@ embeds: [
 new EmbedBuilder()
 .setColor(0x95a5a6)
 .setTitle(" Giveaway Ended")
-
 .setDescription(`No one entered the giveaway for **${data.prize}**. No winner selected.`)
 .setTimestamp(),
 ],
 });
 }
+
 // Pick a random winner
 const winnerId = data.entries[Math.floor(Math.random() * data.entries.length)];
 // Start the dork game
@@ -1096,11 +1175,11 @@ const dorkEmbed = new EmbedBuilder()
 )
 .setFooter({ text: `Max prize cap: ${formatNumber(maxPrize)}` })
 .setTimestamp();
-
 const row = buildDorkRow(isNumeric ? prize : 0, maxPrize, dorkId, !isNumeric);
 const dorkMsg = await channel.send({
 content: `<@${winnerId}>`,
 embeds: [dorkEmbed],
+
 components: [row],
 });
 dorkData.messageId = dorkMsg.id;
@@ -1133,13 +1212,13 @@ data.entries.push(interaction.user.id);
 activeGiveaways.set(messageId, data);
 // Update the giveaway embed to reflect new entry count
 await interaction.message.edit({ embeds: [buildGiveawayEmbed(data)] });
-
 return interaction.reply({
 embeds: [
 new EmbedBuilder()
 .setColor(0x2ecc71)
 .setTitle(" Entered!")
 .setDescription(`You've entered the giveaway for **${data.prize}**! Good luck!`)
+
 .setTimestamp(),
 ],
 ephemeral: true,
@@ -1175,11 +1254,11 @@ const disabledDouble = new ButtonBuilder()
 .setCustomId(`dork_double_${dorkId}`)
 .setLabel(" Double")
 .setStyle(ButtonStyle.Danger)
-
 .setDisabled(true);
 const disabledRow = new ActionRowBuilder().addComponents(disabledKeep, disabledDouble);
 await interaction.message.edit({ components: [disabledRow] });
 const displayPrize = typeof data.prize === "number"
+
 ? formatNumber(data.prize)
 : data.prize;
 // Send keep result
@@ -1192,6 +1271,36 @@ new EmbedBuilder()
 .setTimestamp(),
 ],
 });
+}
+// ── Application Panel Buttons ────────────────────────────
+if (customId === "app_staff") return startApplicationFlow(interaction, "staff");
+if (customId === "app_pm") return startApplicationFlow(interaction, "pm");
+// ── Application Accept Button ─────────────────────────────
+if (customId.startsWith("accept_app_")) {
+const parts = customId.replace("accept_app_", "").split("_");
+const appType = parts.pop();
+const userId = parts.join("_");
+return handleAppAccept(interaction, userId, appType);
+}
+// ── Application Deny Button ───────────────────────────────
+if (customId.startsWith("deny_app_")) {
+const parts = customId.replace("deny_app_", "").split("_");
+const appType = parts.pop();
+const userId = parts.join("_");
+return handleAppDeny(interaction, userId, appType);
+}
+// ── Ticket Buttons ───────────────────────────────────────
+const ticketTypes = ["support","giveaway","spawner","partnership","report_member","report_staff","building","mysterybox"];
+for (const t of ticketTypes) {
+if (customId === `ticket_${t}`) {
+return handleTicketCreate(interaction, t);
+}
+}
+// ── Ticket Close Button ───────────────────────────────────
+if (customId.startsWith("ticket_close_")) {
+const channelId = customId.replace("ticket_close_", "");
+return handleTicketClose(interaction, channelId);
+
 }
 // ── Dork Double Button ────────────────────────────────────
 if (customId.startsWith("dork_double_")) {
@@ -1216,7 +1325,6 @@ ephemeral: true,
 // This handles text prizes — we switch to numeric doubling from maxPrize context
 let currentNumeric;
 if (typeof data.prize === "number") {
-
 currentNumeric = data.prize;
 } else {
 // First double — we need a numeric base. Use maxPrize / some reasonable factor.
@@ -1234,6 +1342,7 @@ const newPrize = currentNumeric * 2;
 if (newPrize > data.maxPrize) {
 return interaction.reply({
 embeds: [errorEmbed(`Doubling would exceed the max cap of **${formatNumber(data.maxPrize)}**. You can only keep.`)],
+
 ephemeral: true,
 });
 }
@@ -1257,7 +1366,6 @@ await interaction.reply({
 embeds: [
 new EmbedBuilder()
 .setColor(0xf39c12)
-
 .setTitle(" Doubling!")
 .setDescription(`<@${data.winnerId}> chose to double! The prize is now **${formatNumber(newPrize)}**!`)
 .setTimestamp(),
@@ -1274,6 +1382,7 @@ await startDorkGame(interaction.channel, data.winnerId, newPrize, data.maxPrize)
 // ── DonutSMP API helper ──────────────────────────────────────
 // All API calls go through this function.
 // Returns { ok: true, data } on success or { ok: false, message } on failure.
+
 async function donutAPI(path, options = {}) {
 const apiKey = process.env.DONUT_API_KEY;
 if (!apiKey) return { ok: false, message: "Missing `DONUT_API_KEY` environment variable on Railway." };
@@ -1297,7 +1406,6 @@ return { ok: false, message: "Could not reach the DonutSMP API. It may be down."
 // ── Helper: format playtime from seconds to readable string ──
 function formatPlaytime(seconds) {
 const s = Number(seconds);
-
 if (isNaN(s)) return String(seconds);
 const d = Math.floor(s / 86400);
 const h = Math.floor((s % 86400) / 3600);
@@ -1316,6 +1424,7 @@ const d = Math.floor(s / 86400);
 const h = Math.floor((s % 86400) / 3600);
 const m = Math.floor((s % 3600) / 60);
 if (d > 0) return `${d}d ${h}h`;
+
 if (h > 0) return `${h}h ${m}m`;
 return `${m}m`;
 }
@@ -1328,6 +1437,623 @@ if (!entries.length) return null;
 return entries.map(([name, lvl]) => `${name} ${lvl}`).join(", ");
 }
 // ============================================================
+// TICKET SYSTEM — Part 2 Functions
+// ============================================================
+// ============================================================
+// APPLICATION SYSTEM — Ticket Part 3 Functions
+// ============================================================
+// ============================================================
+// APPLICATION SYSTEM — Ticket Part 3
+// ============================================================
+// ── Handler: /applicationpanelsend ───────────────────────────
+async function handleApplicationPanelSend(interaction) {
+const embed = new EmbedBuilder()
+.setColor(0x5865f2)
+.setTitle(" Staff Applications")
+.setDescription(
+"Feel free to apply for staff in **FlamingGMR's server** down below!\n\n" +
+" **Requirements:**\n" +
+"• You must be **14 years or older** to apply.\n" +
+"• There is a **14-day cooldown** between applications.\n" +
+"• You must have at least **250 million** on DonutSMP.\n" +
+"• Do **not** ask about your application status — doing so will result in an **instant denial**.\n" +
+"• Must have **2FA** enabled.\n\n" +
+"Select the application type below."
+)
+.setFooter({ text: "Applications are reviewed by the management team." })
+.setTimestamp();
+const row = new ActionRowBuilder().addComponents(
+new ButtonBuilder()
+.setCustomId("app_staff")
+.setLabel("Staff Application")
+.setEmoji(" ")
+
+.setStyle(ButtonStyle.Primary),
+new ButtonBuilder()
+.setCustomId("app_pm")
+.setLabel("PM Application")
+.setEmoji(" ")
+.setStyle(ButtonStyle.Success),
+);
+await interaction.reply({ content: " Application panel sent!", ephemeral: true });
+return interaction.channel.send({ embeds: [embed], components: [row] });
+}
+// ── Start DM application flow ─────────────────────────────────
+// Sends first question via DM and stores session in activeApplications
+async function startApplicationFlow(interaction, type) {
+const user = interaction.user;
+const questions = type === "staff" ? STAFF_APP_QUESTIONS : PM_APP_QUESTIONS;
+const label = type === "staff" ? "Staff" : "Partner Manager";
+// Check if user already has an active application session
+if (activeApplications.has(user.id)) {
+return interaction.reply({
+embeds: [errorEmbed("You already have an active application in progress. Please check your DMs.")],
+ephemeral: true,
+});
+}
+// Try to DM the user
+let dmChannel;
+try {
+dmChannel = await user.createDM();
+await dmChannel.send({
+embeds: [
+new EmbedBuilder()
+.setColor(0x5865f2)
+.setTitle(` ${label} Application`)
+.setDescription(
+`Welcome! You are applying for **${label}** in FlamingGMR's server.\n\n` +
+`Please answer each question by typing your response in this DM.\n` +
+`There are **${questions.length} questions** in total.\n\n` +
+`**Question 1 of ${questions.length}:**\n${questions[0]}`
+)
+.setFooter({ text: "Type your answer below. You have 5 minutes per question." })
+.setTimestamp(),
+],
+});
+} catch (err) {
+
+return interaction.reply({
+embeds: [errorEmbed(
+"I couldn't send you a DM! Please enable Direct Messages from server members.\n\n" +
+"**To fix:** Right-click the server → Privacy Settings → Allow direct messages from server members."
+)],
+ephemeral: true,
+});
+}
+// Store the session
+activeApplications.set(user.id, {
+type,
+questions,
+answers: [],
+currentQ: 0,
+guildId: interaction.guildId,
+label,
+startedAt: Date.now(),
+});
+// Confirm to user in server (ephemeral)
+return interaction.reply({
+embeds: [
+new EmbedBuilder()
+.setColor(0x2ecc71)
+.setTitle(" Application Started")
+.setDescription("Check your DMs! Answer each question to complete your application.")
+.setTimestamp(),
+],
+ephemeral: true,
+});
+}
+// ── messageCreate: handle DM application answers ─────────────
+client.on("messageCreate", async (message) => {
+// Ignore bots and non-DM messages
+if (message.author.bot) return;
+if (message.channel.type !== ChannelType.DM) return;
+const session = activeApplications.get(message.author.id);
+if (!session) return; // Not in an active application
+// Stale session guard — expire after 30 minutes of inactivity
+if (Date.now() - session.startedAt > 30 * 60 * 1000) {
+activeApplications.delete(message.author.id);
+return message.channel.send({
+embeds: [errorEmbed("Your application session has expired (30 minutes). Please start again.")],
+
+});
+}
+// Save this answer
+session.answers.push(message.content.trim());
+session.currentQ++;
+session.startedAt = Date.now(); // Reset inactivity timer
+// If more questions remain, send the next one
+if (session.currentQ < session.questions.length) {
+const nextQ = session.questions[session.currentQ];
+await message.channel.send({
+embeds: [
+new EmbedBuilder()
+.setColor(0x5865f2)
+.setTitle(` ${session.label} Application`)
+.setDescription(
+`**Question ${session.currentQ + 1} of ${session.questions.length}:**\n${nextQ}`
+)
+.setFooter({ text: "Type your answer below." })
+.setTimestamp(),
+],
+});
+activeApplications.set(message.author.id, session);
+return;
+}
+// All questions answered — submit the application
+activeApplications.delete(message.author.id);
+// Send confirmation to the applicant
+await message.channel.send({
+embeds: [
+new EmbedBuilder()
+.setColor(0x2ecc71)
+.setTitle(" Application Submitted!")
+.setDescription(
+`Your **${session.label}** application has been submitted successfully!\n\n` +
+`The management team will review it and get back to you. ` +
+`Do **not** ask about your application status — doing so will result in an **instant denial**.`
+)
+.setTimestamp(),
+],
+});
+// Fetch the submission channel
+const channelId = session.type === "staff"
+
+? process.env.STAFF_APP_CHANNEL_ID
+: process.env.PM_APP_CHANNEL_ID;
+if (!channelId) {
+console.error(` Missing ${session.type === "staff" ? "STAFF" : "PM"}_APP_CHANNEL_ID env variable`);
+return;
+}
+let submitChannel;
+try {
+submitChannel = await client.channels.fetch(channelId);
+} catch (err) {
+console.error(" Could not fetch application submission channel:", err);
+return;
+}
+if (!submitChannel) {
+console.error(" Application submission channel not found");
+return;
+}
+// Build the submission embed
+const submissionEmbed = new EmbedBuilder()
+.setColor(0x5865f2)
+.setTitle(` ${message.author.username}'s '${session.label}' Application Submitted`)
+.setThumbnail(message.author.displayAvatarURL())
+.setTimestamp();
+// Add each Q&A as a field
+session.questions.forEach((q, i) => {
+submissionEmbed.addFields({
+name: `${i + 1}. ${q}`,
+value: session.answers[i] || "No answer provided",
+inline: false,
+});
+});
+submissionEmbed.setFooter({ text: `User ID: ${message.author.id}` });
+// Accept / Deny buttons
+const actionRow = new ActionRowBuilder().addComponents(
+new ButtonBuilder()
+.setCustomId(`accept_app_${message.author.id}_${session.type}`)
+.setLabel(" Accept")
+.setStyle(ButtonStyle.Success),
+new ButtonBuilder()
+.setCustomId(`deny_app_${message.author.id}_${session.type}`)
+
+.setLabel(" Deny")
+.setStyle(ButtonStyle.Danger),
+);
+await submitChannel.send({
+embeds: [submissionEmbed],
+components: [actionRow],
+});
+});
+// ── Handler: application accept ──────────────────────────────
+async function handleAppAccept(interaction, userId, appType) {
+const guild = interaction.guild;
+// Fetch the member
+const member = await guild.members.fetch(userId).catch(() => null);
+if (!member) {
+return interaction.reply({
+embeds: [errorEmbed("Could not find that user in the server. They may have left.")],
+ephemeral: true,
+});
+}
+// Build list of role IDs to assign based on app type
+const roleIds = [];
+if (appType === "staff") {
+if (process.env.STAFF_ROLE_ID) roleIds.push(process.env.STAFF_ROLE_ID);
+if (process.env.HELPER_ROLE_ID) roleIds.push(process.env.HELPER_ROLE_ID);
+if (process.env.TICKET_STAFF_ROLE_ID) roleIds.push(process.env.TICKET_STAFF_ROLE_ID);
+} else {
+if (process.env.PM_ROLE_ID) roleIds.push(process.env.PM_ROLE_ID);
+if (process.env.STAFF_ROLE_ID) roleIds.push(process.env.STAFF_ROLE_ID);
+}
+// Assign roles
+const assignedRoles = [];
+const failedRoles = [];
+for (const roleId of roleIds) {
+try {
+const role = guild.roles.cache.get(roleId);
+if (role) {
+await member.roles.add(role);
+assignedRoles.push(`<@&${roleId}>`);
+} else {
+failedRoles.push(roleId);
+}
+
+} catch (err) {
+console.error(` Failed to assign role ${roleId}:`, err);
+failedRoles.push(roleId);
+}
+}
+// DM the applicant
+try {
+await member.user.send({
+embeds: [
+new EmbedBuilder()
+.setColor(0x2ecc71)
+.setTitle(" Application Accepted!")
+.setDescription(
+`Congratulations! Your **${appType === "staff" ? "Staff" : "Partner Manager"}** ` +
+`application in **FlamingGMR's server** has been accepted!\n\n` +
+`Welcome to the team! `
+)
+.setTimestamp(),
+],
+});
+} catch {
+console.warn(` Could not DM ${member.user.tag} about acceptance`);
+}
+// Disable buttons on the submission message
+const disabledRow = new ActionRowBuilder().addComponents(
+new ButtonBuilder()
+.setCustomId(`accept_app_${userId}_${appType}`)
+.setLabel(" Accepted")
+.setStyle(ButtonStyle.Success)
+.setDisabled(true),
+new ButtonBuilder()
+.setCustomId(`deny_app_${userId}_${appType}`)
+.setLabel(" Deny")
+.setStyle(ButtonStyle.Danger)
+.setDisabled(true),
+);
+await interaction.message.edit({ components: [disabledRow] });
+const roleText = assignedRoles.length
+? `\n**Roles assigned:** ${assignedRoles.join(", ")}`
+: "";
+const failText = failedRoles.length
+? `\n Could not assign roles: ${failedRoles.join(", ")} — check role IDs on Railway.`
+: "";
+
+return interaction.reply({
+embeds: [
+new EmbedBuilder()
+.setColor(0x2ecc71)
+.setTitle(" Application Accepted")
+.setDescription(
+`<@${userId}>'s application has been accepted by <@${interaction.user.id}>.` +
+roleText + failText
+)
+.setTimestamp(),
+],
+});
+}
+// ── Handler: application deny ─────────────────────────────────
+async function handleAppDeny(interaction, userId, appType) {
+// Show modal asking for deny reason
+const modal = new ModalBuilder()
+.setCustomId(`deny_reason_${userId}_${appType}`)
+.setTitle("Deny Application");
+const reasonInput = new TextInputBuilder()
+.setCustomId("deny_reason")
+.setLabel("Reason for denial")
+.setStyle(TextInputStyle.Paragraph)
+.setPlaceholder("Enter the reason for denying this application...")
+.setRequired(true)
+.setMaxLength(500);
+modal.addComponents(new ActionRowBuilder().addComponents(reasonInput));
+return interaction.showModal(modal);
+}
+// ── Handler: process deny reason modal ───────────────────────
+async function handleDenyReasonModal(interaction, userId, appType) {
+const reason = interaction.fields.getTextInputValue("deny_reason");
+const guild = interaction.guild;
+// Try to DM the applicant
+try {
+const user = await client.users.fetch(userId);
+await user.send({
+embeds: [
+new EmbedBuilder()
+.setColor(0xe74c3c)
+.setTitle(" Application Denied")
+
+.setDescription(
+`Your **${appType === "staff" ? "Staff" : "Partner Manager"}** application ` +
+`in **FlamingGMR's server** has been denied.\n\n` +
+`**Reason:** ${reason}\n\n` +
+`You may re-apply after **14 days**.`
+)
+.setTimestamp(),
+],
+});
+} catch {
+console.warn(` Could not DM user ${userId} about denial`);
+}
+// Disable buttons on the submission message
+const disabledRow = new ActionRowBuilder().addComponents(
+new ButtonBuilder()
+.setCustomId(`accept_app_${userId}_${appType}`)
+.setLabel(" Accept")
+.setStyle(ButtonStyle.Success)
+.setDisabled(true),
+new ButtonBuilder()
+.setCustomId(`deny_app_${userId}_${appType}`)
+.setLabel(" Denied")
+.setStyle(ButtonStyle.Danger)
+.setDisabled(true),
+);
+await interaction.message.edit({ components: [disabledRow] });
+return interaction.reply({
+embeds: [
+new EmbedBuilder()
+.setColor(0xe74c3c)
+.setTitle(" Application Denied")
+.setDescription(
+`<@${userId}>'s application has been denied by <@${interaction.user.id}>.\n\n` +
+`**Reason:** ${reason}`
+)
+.setTimestamp(),
+],
+});
+}
+
+// ============================================================
+// TICKET SYSTEM — Part 2
+
+// ============================================================
+// ── Helper: find or create a category by name ────────────────
+async function findOrCreateCategory(guild, categoryName) {
+// Look for existing category with exact name match
+const existing = guild.channels.cache.find(
+c => c.type === ChannelType.GuildCategory && c.name === categoryName
+);
+if (existing) return existing;
+// Create it if it doesn't exist
+return guild.channels.create({
+name: categoryName,
+type: ChannelType.GuildCategory,
+});
+}
+// ── Helper: build ticket welcome embed ───────────────────────
+function buildTicketWelcomeEmbed(type, user) {
+const descriptions = {
+support: "Our staff team will be with you shortly. Please describe your issue in detail.",
+giveaway: "Please provide your giveaway claim details below. Staff will assist you shortly.",
+partnership: "Thanks for your interest in partnering! Please share your server details below.",
+spawner: "Please let us know what spawner transaction you need help with.",
+report: "Please describe the situation in detail including any evidence you have.",
+building: "Please describe what you need built and any details about the project.",
+mysterybox: "Please describe your mystery box issue. Staff will assist you shortly.",
+};
+return new EmbedBuilder()
+.setColor(0x5865f2)
+.setTitle(` Ticket Opened`)
+.setDescription(
+`Welcome to **FlamingGMR's server**, <@${user.id}>!\n\n` +
+(descriptions[type] ?? "A staff member will be with you shortly.") +
+`\n\nTo close this ticket, click the ** Close Ticket** button below.`
+)
+.setFooter({ text: `Ticket type: ${type} • Created by ${user.tag}` })
+.setTimestamp();
+}
+// ── Handler: /ticketpanelsend ────────────────────────────────
+async function handleTicketPanelSend(interaction) {
+const embed = new EmbedBuilder()
+.setColor(0x5865f2)
+.setTitle(" FlamingGMR Support")
+.setDescription(
+
+"Welcome to **FlamingGMR's server**! What can we help you with?\n\n" +
+"Click a button below to open a ticket in the relevant category."
+)
+.setFooter({ text: "Only open a ticket if you genuinely need help." })
+.setTimestamp();
+// Row 1: Support, Giveaway, Spawner, Partnership
+const row1 = new ActionRowBuilder().addComponents(
+new ButtonBuilder().setCustomId("ticket_support") .setLabel("Support") .setEmoji(" ").setStyle(ButtonStyle.Primary),
+new ButtonBuilder().setCustomId("ticket_giveaway") .setLabel("Giveaway") .setEmoji(" ").setStyle(ButtonStyle.Success),
+new ButtonBuilder().setCustomId("ticket_spawner") .setLabel("Spawner Buy/Sell").setEmoji(" ").setStyle(ButtonStyle.Secondary),
+new ButtonBuilder().setCustomId("ticket_partnership").setLabel("Partnership") .setEmoji(" ").setStyle(ButtonStyle.Primary),
+);
+// Row 2: Member Report, Staff Report, Building, Mystery Box
+const row2 = new ActionRowBuilder().addComponents(
+new ButtonBuilder().setCustomId("ticket_report_member").setLabel("Member Report").setEmoji(" ").setStyle(ButtonStyle.Danger),
+new ButtonBuilder().setCustomId("ticket_report_staff") .setLabel("Staff Report") .setEmoji(" ").setStyle(ButtonStyle.Danger),
+new ButtonBuilder().setCustomId("ticket_building") .setLabel("Building") .setEmoji(" ").setStyle(ButtonStyle.Secondary),
+new ButtonBuilder().setCustomId("ticket_mysterybox") .setLabel("Mystery Box") .setEmoji(" ").setStyle(ButtonStyle.Success),
+);
+await interaction.reply({ content: " Ticket panel sent!", ephemeral: true });
+return interaction.channel.send({ embeds: [embed], components: [row1, row2] });
+}
+// ── Handler: create ticket channel ───────────────────────────
+async function handleTicketCreate(interaction, type) {
+const guild = interaction.guild;
+const user = interaction.user;
+// Map button type to category name and channel prefix
+const typeMap = {
+support: { category: TICKET_CATEGORIES.support, prefix: "support" },
+giveaway: { category: TICKET_CATEGORIES.giveaway, prefix: "giveaway" },
+spawner: { category: TICKET_CATEGORIES.spawner, prefix: "spawner" },
+partnership: { category: TICKET_CATEGORIES.partnership, prefix: "partnership" },
+report_member: { category: TICKET_CATEGORIES.report, prefix: "member-report" },
+report_staff: { category: TICKET_CATEGORIES.report, prefix: "staff-report" },
+building: { category: TICKET_CATEGORIES.building, prefix: "building" },
+mysterybox: { category: TICKET_CATEGORIES.mysterybox, prefix: "mysterybox" },
+};
+const config = typeMap[type];
+if (!config) {
+return interaction.reply({ embeds: [errorEmbed("Unknown ticket type.")], ephemeral: true });
+}
+
+// Check if user already has an open ticket of this type
+const existingChannel = guild.channels.cache.find(
+c => c.name === `${config.prefix}-${user.username.toLowerCase()}` &&
+c.type === ChannelType.GuildText
+);
+if (existingChannel) {
+return interaction.reply({
+embeds: [errorEmbed(`You already have an open ticket: <#${existingChannel.id}>`)],
+ephemeral: true,
+});
+}
+// Find or create the category
+let category;
+try {
+category = await findOrCreateCategory(guild, config.category);
+} catch (err) {
+console.error(" Failed to find/create category:", err);
+return interaction.reply({
+embeds: [errorEmbed("Could not find or create the ticket category. Make sure the bot has Manage Channels permission.")],
+ephemeral: true,
+});
+}
+// Get ticket staff role for permissions
+const ticketStaffRoleId = process.env.TICKET_STAFF_ROLE_ID;
+// Build permission overwrites
+const permissionOverwrites = [
+{
+// @everyone cannot see the channel
+id: guild.roles.everyone,
+deny: [PermissionsBitField.Flags.ViewChannel],
+},
+{
+// The user who opened the ticket can see and send
+id: user.id,
+allow: [
+PermissionsBitField.Flags.ViewChannel,
+PermissionsBitField.Flags.SendMessages,
+PermissionsBitField.Flags.ReadMessageHistory,
+PermissionsBitField.Flags.AttachFiles,
+],
+},
+{
+
+// The bot itself can always see and manage
+id: guild.members.me.id,
+allow: [
+PermissionsBitField.Flags.ViewChannel,
+PermissionsBitField.Flags.SendMessages,
+PermissionsBitField.Flags.ManageChannels,
+PermissionsBitField.Flags.ReadMessageHistory,
+],
+},
+];
+// Add ticket staff role permission if set
+if (ticketStaffRoleId) {
+permissionOverwrites.push({
+id: ticketStaffRoleId,
+allow: [
+PermissionsBitField.Flags.ViewChannel,
+PermissionsBitField.Flags.SendMessages,
+PermissionsBitField.Flags.ReadMessageHistory,
+PermissionsBitField.Flags.ManageMessages,
+],
+});
+}
+// Create the ticket channel
+let ticketChannel;
+try {
+ticketChannel = await guild.channels.create({
+name: `${config.prefix}-${user.username.toLowerCase()}`,
+type: ChannelType.GuildText,
+parent: category.id,
+permissionOverwrites,
+});
+} catch (err) {
+console.error(" Failed to create ticket channel:", err);
+return interaction.reply({
+embeds: [errorEmbed("Could not create the ticket channel. Make sure the bot has Manage Channels permission.")],
+ephemeral: true,
+});
+}
+// Build close button
+const closeRow = new ActionRowBuilder().addComponents(
+new ButtonBuilder()
+.setCustomId(`ticket_close_${ticketChannel.id}`)
+.setLabel(" Close Ticket")
+.setStyle(ButtonStyle.Danger)
+
+);
+// Send welcome embed inside the ticket channel
+await ticketChannel.send({
+content: `<@${user.id}>${ticketStaffRoleId ? ` | <@&${ticketStaffRoleId}>` : ""}`,
+embeds: [buildTicketWelcomeEmbed(type, user)],
+components: [closeRow],
+});
+// Confirm to the user
+return interaction.reply({
+embeds: [
+new EmbedBuilder()
+.setColor(0x2ecc71)
+.setTitle(" Ticket Created")
+.setDescription(`Your ticket has been created: <#${ticketChannel.id}>`)
+.setTimestamp()
+],
+ephemeral: true,
+});
+}
+// ── Handler: close ticket modal submission ───────────────────
+async function handleTicketClose(interaction, channelId) {
+// Show a modal asking for close reason
+const modal = new ModalBuilder()
+.setCustomId(`ticket_close_reason_${channelId}`)
+.setTitle("Close Ticket");
+const reasonInput = new TextInputBuilder()
+.setCustomId("close_reason")
+.setLabel("Reason for closing")
+.setStyle(TextInputStyle.Paragraph)
+.setPlaceholder("Enter the reason for closing this ticket...")
+.setRequired(true)
+.setMaxLength(500);
+modal.addComponents(new ActionRowBuilder().addComponents(reasonInput));
+return interaction.showModal(modal);
+}
+// ── Handler: process ticket close modal ─────────────────────
+async function handleTicketCloseModal(interaction, channelId) {
+const reason = interaction.fields.getTextInputValue("close_reason");
+const channel = interaction.guild.channels.cache.get(channelId);
+if (!channel) {
+
+return interaction.reply({
+embeds: [errorEmbed("Could not find the ticket channel to close.")],
+ephemeral: true,
+});
+}
+// Send closing message in the channel before deleting
+await channel.send({
+embeds: [
+new EmbedBuilder()
+.setColor(0xe74c3c)
+.setTitle(" Ticket Closed")
+.setDescription(
+`This ticket has been closed by <@${interaction.user.id}>.\n\n` +
+`**Reason:** ${reason}`
+)
+.setTimestamp()
+],
+});
+await interaction.reply({ content: " Closing ticket...", ephemeral: true });
+// Wait 3 seconds so staff can see the closing message, then delete
+setTimeout(async () => {
+try {
+await channel.delete(`Ticket closed by ${interaction.user.tag}: ${reason}`);
+} catch (err) {
+console.error(" Failed to delete ticket channel:", err);
+}
+}, 3000);
+}
+
+// ============================================================
 // CLIENT READY EVENT
 // ============================================================
 client.once("ready", async () => {
@@ -1339,8 +2065,8 @@ await registerCommands();
 console.error(" Command registration failed on ready:", err);
 // Do NOT process.exit here — bot can still function with existing commands
 }
-});
 
+});
 // ============================================================
 // UNHANDLED ERRORS — prevent Railway crash on promise rejection
 // ============================================================
